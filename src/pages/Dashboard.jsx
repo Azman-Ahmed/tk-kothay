@@ -47,20 +47,49 @@ export function Dashboard() {
       { data: allSavings },
       { data: lastMonthIncomes },
       { data: lastMonthExpenses },
+      { data: allLoans },
+      { data: allRecurring },
     ] = await Promise.all([
       supabase.from("incomes").select("amount,date").gte("date", thisMonthStart).lte("date", thisMonthEnd),
       supabase.from("expenses").select("amount,category,date").gte("date", thisMonthStart).lte("date", thisMonthEnd),
       supabase.from("daily_spends").select("amount,date").gte("date", thisMonthStart).lte("date", thisMonthEnd),
-      supabase.from("savings_goals").select("current_amount,target_amount,name"),
+      supabase.from("savings_goals").select("*"), // Fetch all goals to filter DPS and get target names
       supabase.from("incomes").select("amount").gte("date", lastMonthStart).lte("date", lastMonthEnd),
       supabase.from("expenses").select("amount").gte("date", lastMonthStart).lte("date", lastMonthEnd),
       supabase.from("loans").select("*").eq("type", "taken").gt("remaining_amount", 0).not("due_date", "is", null),
+      supabase.from("recurring_expenses").select("*"),
     ]);
 
+    const activeMonth = `${year}-${String(month + 1).padStart(2, "0")}`;
+
     const totalIncome = (allIncomes || []).reduce((s, i) => s + Number(i.amount), 0);
-    const totalExpense = (allExpenses || []).reduce((s, i) => s + Number(i.amount), 0);
+    const totalOneTime = (allExpenses || []).reduce((s, i) => s + Number(i.amount), 0);
     const totalDaily = (allDaily || []).reduce((s, i) => s + Number(i.amount), 0);
-    const totalAllExpenses = totalExpense + totalDaily;
+    
+    // Active Recurring Expenses
+    const activeRecurring = (allRecurring || []).filter(r => r.start_month <= activeMonth && r.end_month >= activeMonth);
+    const totalRecurring = activeRecurring.reduce((s, r) => s + Number(r.amount), 0);
+
+    // Active DPS Savings
+    const activeDps = (allSavings || []).filter(g => {
+      if (!g.is_recurring || !g.start_month || !g.duration_months) return false;
+      const [sy, sm] = g.start_month.split("-").map(Number);
+      const start = new Date(sy, sm - 1, 1);
+      const current = new Date(year, month, 1);
+      const end = new Date(sy, sm - 1 + g.duration_months - 1, 1);
+      return current >= start && current <= end;
+    });
+    const totalDps = activeDps.reduce((s, g) => {
+      const base = Number(g.monthly_amount || 0);
+      if (g.frequency === "weekly") {
+         const days = new Date(year, month + 1, 0).getDate();
+         const weeks = Math.floor(days / 7) + (days % 7 >= 1 ? 1 : 0);
+         return s + (base * weeks);
+      }
+      return s + base;
+    }, 0);
+
+    const totalAllExpenses = totalOneTime + totalDaily + totalRecurring + totalDps;
     const totalSavings = (allSavings || []).reduce((s, g) => s + Number(g.current_amount), 0);
     const balance = totalIncome - totalAllExpenses;
 
@@ -78,10 +107,12 @@ export function Dashboard() {
     const categoryMap = {};
     (allExpenses || []).forEach(e => { categoryMap[e.category] = (categoryMap[e.category] || 0) + Number(e.amount); });
     if (totalDaily > 0) categoryMap["Daily Spend"] = (categoryMap["Daily Spend"] || 0) + totalDaily;
+    if (totalRecurring > 0) categoryMap["Recurring EMI"] = (categoryMap["Recurring EMI"] || 0) + totalRecurring;
+    if (totalDps > 0) categoryMap["DPS Savings"] = (categoryMap["DPS Savings"] || 0) + totalDps;
     setPieData(Object.entries(categoryMap).map(([name, value]) => ({ name, value })));
 
     // Loan Reminders
-    const upcomingLoans = (arguments[4] || [])
+    const upcomingLoans = (allLoans || [])
       .filter(l => {
         const due = new Date(l.due_date);
         const diffDays = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
