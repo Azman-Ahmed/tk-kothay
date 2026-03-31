@@ -134,6 +134,19 @@ export function Expenses() {
   const handleSaveRec = async () => {
     if (!recForm.name.trim() || !recForm.amount) return;
     setSavingRec(true);
+    
+    // DEBUG: Log the payload being sent to Supabase
+    console.log("Saving EMI Payload:", {
+      name: recForm.name,
+      category: recForm.category,
+      amount: Number(recForm.amount),
+      start_date: recForm.start_date,
+      end_date: recForm.end_date,
+      frequency: recForm.frequency,
+      payment_day: recForm.payment_day,
+      notes: recForm.notes
+    });
+
     if (editingRecId) {
       await supabase.from("recurring_expenses").update({
         name: recForm.name, category: recForm.category, amount: Number(recForm.amount),
