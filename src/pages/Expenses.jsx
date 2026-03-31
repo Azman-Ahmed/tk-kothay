@@ -120,12 +120,7 @@ export function Expenses() {
   const activeEmi = recurring.filter(r => {
     const monthStart = `${selectedMonth}-01`;
     const monthEnd = new Date(selectedMonth.split("-")[0], selectedMonth.split("-")[1], 0).toISOString().split("T")[0];
-    
-    // Safety Fallback: If new start_date is missing, use old start_month
-    if (r.start_date && r.end_date) {
-      return r.start_date <= monthEnd && r.end_date >= monthStart;
-    }
-    return r.start_month <= selectedMonth && r.end_month >= selectedMonth;
+    return r.start_date <= monthEnd && r.end_date >= monthStart;
   });
 
   // Filter DPS savings active this month
@@ -139,19 +134,6 @@ export function Expenses() {
   const handleSaveRec = async () => {
     if (!recForm.name.trim() || !recForm.amount) return;
     setSavingRec(true);
-    
-    // DEBUG: Log the payload being sent to Supabase
-    console.log("Saving EMI Payload:", {
-      name: recForm.name,
-      category: recForm.category,
-      amount: Number(recForm.amount),
-      start_date: recForm.start_date,
-      end_date: recForm.end_date,
-      frequency: recForm.frequency,
-      payment_day: recForm.payment_day,
-      notes: recForm.notes
-    });
-
     if (editingRecId) {
       await supabase.from("recurring_expenses").update({
         name: recForm.name, category: recForm.category, amount: Number(recForm.amount),

@@ -76,16 +76,6 @@ CREATE TABLE IF NOT EXISTS public.recurring_expenses (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
--- Ensure columns exist for older table versions
-ALTER TABLE public.recurring_expenses ADD COLUMN IF NOT EXISTS start_date DATE;
-ALTER TABLE public.recurring_expenses ADD COLUMN IF NOT EXISTS end_date DATE;
-ALTER TABLE public.recurring_expenses ADD COLUMN IF NOT EXISTS frequency TEXT DEFAULT 'monthly';
-ALTER TABLE public.recurring_expenses ADD COLUMN IF NOT EXISTS payment_day INTEGER DEFAULT 1;
-
--- Ensure deprecated columns are optional (fixes 23502 error)
-ALTER TABLE public.recurring_expenses ALTER COLUMN start_month DROP NOT NULL;
-ALTER TABLE public.recurring_expenses ALTER COLUMN end_month DROP NOT NULL;
-
 -- Migration for recurring_expenses columns
 DO $$ 
 BEGIN 

@@ -84,12 +84,7 @@ export function Dashboard() {
     const activeRecurring = (allRecurring || []).filter(r => {
       const monthStart = `${activeMonth}-01`;
       const monthEnd = new Date(year, month + 1, 0).toISOString().split("T")[0];
-      
-      // Safety Fallback: Use old start_month if new start_date is missing
-      if (r.start_date && r.end_date) {
-        return r.start_date <= monthEnd && r.end_date >= monthStart;
-      }
-      return r.start_month <= activeMonth && r.end_month >= activeMonth;
+      return r.start_date <= monthEnd && r.end_date >= monthStart;
     });
     const totalRecurring = activeRecurring.reduce((s, r) => {
       const base = Number(r.amount);

@@ -188,11 +188,7 @@ export function Reports() {
 
     // Active EMI this month
     const activeRecurring = (allRecurring || []).filter(r => {
-      // Safety Fallback: Use old start_month if new start_date is missing
-      if (r.start_date && r.end_date) {
-        return r.start_date <= end && r.end_date >= start;
-      }
-      return r.start_month <= selectedMonth && r.end_month >= selectedMonth;
+      return r.start_date <= end && r.end_date >= start;
     });
     const totalRecurring = activeRecurring.reduce((s, r) => {
       const base = Number(r.amount);
@@ -216,11 +212,7 @@ export function Reports() {
     const pOneTime = (prevExpenses || []).reduce((s, e) => s + Number(e.amount), 0);
     const pDaily = (prevDailySpends || []).reduce((s, d) => s + Number(d.amount), 0);
     const prevActiveRec = (allRecurring || []).filter(r => {
-      // Safety Fallback
-      if (r.start_date && r.end_date) {
-        return r.start_date <= prevEnd && r.end_date >= prevStart;
-      }
-      return r.start_month <= prevMonth && r.end_month >= prevMonth;
+      return r.start_date <= prevEnd && r.end_date >= prevStart;
     });
     const pRecurring = prevActiveRec.reduce((s, r) => {
       const base = Number(r.amount);
@@ -288,11 +280,7 @@ export function Reports() {
     setTrendData(months6.map(ym => {
       const { start: mStart, end: mEnd } = monthRange(ym);
       const activeRec = (allRecurring || []).filter(r => {
-        // Safety Fallback
-        if (r.start_date && r.end_date) {
-          return r.start_date <= mEnd && r.end_date >= mStart;
-        }
-        return r.start_month <= ym && r.end_month >= ym;
+        return r.start_date <= mEnd && r.end_date >= mStart;
       });
       const recAmt = activeRec.reduce((s, r) => {
         const base = Number(r.amount);
