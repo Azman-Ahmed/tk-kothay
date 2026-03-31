@@ -120,7 +120,12 @@ export function Expenses() {
   const activeEmi = recurring.filter(r => {
     const monthStart = `${selectedMonth}-01`;
     const monthEnd = new Date(selectedMonth.split("-")[0], selectedMonth.split("-")[1], 0).toISOString().split("T")[0];
-    return r.start_date <= monthEnd && r.end_date >= monthStart;
+    
+    // Safety Fallback: If new start_date is missing, use old start_month
+    if (r.start_date && r.end_date) {
+      return r.start_date <= monthEnd && r.end_date >= monthStart;
+    }
+    return r.start_month <= selectedMonth && r.end_month >= selectedMonth;
   });
 
   // Filter DPS savings active this month
