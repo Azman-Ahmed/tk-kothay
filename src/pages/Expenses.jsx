@@ -46,9 +46,28 @@ function monthLabel(ym) {
   return `${MONTHS[parseInt(m) - 1]} ${y}`;
 }
 
+// Count occurrences of a specific day of the week (0-6) in a month (YYYY-MM)
+function countOccurrences(ym, dayOfWeek) {
+  const [y, m] = ym.split("-").map(Number);
+  const start = new Date(y, m - 1, 1);
+  const end = new Date(y, m, 0);
+  let count = 0;
+  let current = new Date(start);
+  while (current <= end) {
+    if (current.getDay() === dayOfWeek) count++;
+    current.setDate(current.getDate() + 1);
+  }
+  return count;
+}
+
+
 const INITIAL_REC_FORM = {
   name: "", category: "EMI", amount: "",
-  start_month: toYearMonth(new Date()), end_month: toYearMonth(new Date()), notes: "",
+  start_date: new Date().toISOString().split("T")[0], 
+  end_date: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split("T")[0],
+  frequency: "monthly",
+  payment_day: "1", // Date of month or Day of week (0-6)
+  notes: "",
 };
 
 export function Expenses() {
@@ -98,7 +117,11 @@ export function Expenses() {
   useEffect(() => { fetchRecurring(); fetchDpsSavings(); }, [fetchRecurring, fetchDpsSavings]);
 
   // Filter EMI entries active this month
-  const activeEmi = recurring.filter(r => r.start_month <= selectedMonth && r.end_month >= selectedMonth);
+  const activeEmi = recurring.filter(r => {
+    const monthStart = `${selectedMonth}-01`;
+    const monthEnd = new Date(selectedMonth.split("-")[0], selectedMonth.split("-")[1], 0).toISOString().split("T")[0];
+    return r.start_date <= monthEnd && r.end_date >= monthStart;
+  });
 
   // Filter DPS savings active this month
   const activeDps = dpsSavings.filter(g => {
@@ -114,12 +137,16 @@ export function Expenses() {
     if (editingRecId) {
       await supabase.from("recurring_expenses").update({
         name: recForm.name, category: recForm.category, amount: Number(recForm.amount),
-        start_month: recForm.start_month, end_month: recForm.end_month, notes: recForm.notes,
+        start_date: recForm.start_date, end_date: recForm.end_date, 
+        frequency: recForm.frequency, payment_day: parseInt(recForm.payment_day),
+        notes: recForm.notes,
       }).eq("id", editingRecId);
     } else {
       await supabase.from("recurring_expenses").insert([{
         name: recForm.name, category: recForm.category, amount: Number(recForm.amount),
-        start_month: recForm.start_month, end_month: recForm.end_month, notes: recForm.notes,
+        start_date: recForm.start_date, end_date: recForm.end_date,
+        frequency: recForm.frequency, payment_day: parseInt(recForm.payment_day),
+        notes: recForm.notes,
       }]);
     }
     setRecForm(INITIAL_REC_FORM);
@@ -131,7 +158,16 @@ export function Expenses() {
 
   const handleEditRec = (rec) => {
     setEditingRecId(rec.id);
-    setRecForm({ name: rec.name, category: rec.category, amount: String(rec.amount), start_month: rec.start_month, end_month: rec.end_month, notes: rec.notes || "" });
+    setRecForm({ 
+      name: rec.name, 
+      category: rec.category, 
+      amount: String(rec.amount), 
+      start_date: rec.start_date, 
+      end_date: rec.end_date, 
+      frequency: rec.frequency || "monthly",
+      payment_day: String(rec.payment_day ?? 1),
+      notes: rec.notes || "" 
+    });
     setShowRecForm(true);
   };
 
@@ -141,7 +177,13 @@ export function Expenses() {
     fetchRecurring();
   };
 
-  const emiTotal = activeEmi.reduce((s, r) => s + Number(r.amount), 0);
+  const emiTotal = activeEmi.reduce((s, r) => {
+    const base = Number(r.amount);
+    if (r.frequency === "weekly") {
+      return s + (base * countOccurrences(selectedMonth, r.payment_day));
+    }
+    return s + base;
+  }, 0);
   const dpsTotal = activeDps.reduce((s, g) => s + dpsMonthlyAmount(g, selectedMonth), 0);
   const grandTotal = emiTotal + dpsTotal;
 
@@ -226,13 +268,31 @@ export function Expenses() {
                 <Input type="number" placeholder="e.g. 3000" value={recForm.amount} onChange={e => setRecForm({ ...recForm, amount: e.target.value })} />
               </div>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Start Month</label>
-                <Input type="month" value={recForm.start_month} onChange={e => setRecForm({ ...recForm, start_month: e.target.value })} />
+                <label className="text-sm font-medium">Frequency</label>
+                <select value={recForm.frequency} onChange={e => setRecForm({ ...recForm, frequency: e.target.value, payment_day: e.target.value === 'weekly' ? '1' : '1' })} className={selectClass}>
+                  <option value="monthly">Monthly</option>
+                  <option value="weekly">Weekly</option>
+                </select>
               </div>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">End Month</label>
-                <Input type="month" value={recForm.end_month} onChange={e => setRecForm({ ...recForm, end_month: e.target.value })} />
+                <label className="text-sm font-medium">{recForm.frequency === 'weekly' ? "Payment Day" : "Day of Month"}</label>
+                <select value={recForm.payment_day} onChange={e => setRecForm({ ...recForm, payment_day: e.target.value })} className={selectClass}>
+                  {recForm.frequency === 'weekly' ? (
+                    ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((day, idx) => <option key={day} value={idx}>{day}</option>)
+                  ) : (
+                    Array.from({length: 31}, (_, i) => <option key={i+1} value={i+1}>{i+1}</option>)
+                  )}
+                </select>
               </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Start Date</label>
+                <Input type="date" value={recForm.start_date} onChange={e => setRecForm({ ...recForm, start_date: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">End Date</label>
+                <Input type="date" value={recForm.end_date} onChange={e => setRecForm({ ...recForm, end_date: e.target.value })} />
+              </div>
+
               <div className="space-y-1.5 sm:col-span-2">
                 <label className="text-sm font-medium">Notes (Optional)</label>
                 <Input placeholder="e.g. Samsung Galaxy S24 Ultra" value={recForm.notes} onChange={e => setRecForm({ ...recForm, notes: e.target.value })} />
@@ -283,11 +343,26 @@ export function Expenses() {
                       </div>
                       <div>
                         <p className="font-medium text-sm">{rec.name}</p>
-                        <p className="text-xs text-muted-foreground">{rec.category} • {monthLabel(rec.start_month)} → {monthLabel(rec.end_month)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {rec.category} • {rec.start_date} → {rec.end_date}
+                          <br />
+                          {rec.frequency === 'weekly' 
+                            ? `Every ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][rec.payment_day]}`
+                            : `Day ${rec.payment_day} of month`
+                          }
+                        </p>
                       </div>
+
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-indigo-600 dark:text-indigo-400">- ৳{Number(rec.amount).toLocaleString()}/mo</span>
+                    <div className="flex items-center gap-2 text-right">
+                      <div>
+                        <span className="font-bold text-sm text-indigo-600 dark:text-indigo-400 block">- ৳{Number(rec.amount).toLocaleString()}/{rec.frequency === 'weekly' ? 'wk' : 'mo'}</span>
+                        {rec.frequency === 'weekly' && (
+                          <span className="text-[10px] text-muted-foreground block">
+                            (Total: ৳{(Number(rec.amount) * countOccurrences(selectedMonth, rec.payment_day)).toLocaleString()} this month)
+                          </span>
+                        )}
+                      </div>
                       <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-blue-500" onClick={() => handleEditRec(rec)}><Pencil className="h-3.5 w-3.5" /></Button>
                       <DeleteBtns id={rec.id} onConfirm={handleDeleteRec} />
                     </div>

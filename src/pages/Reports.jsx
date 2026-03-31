@@ -39,17 +39,26 @@ function pctChange(curr, prev) {
   return parseFloat((((curr - prev) / prev) * 100).toFixed(1));
 }
 function fmt(n) { return Number(n || 0).toLocaleString(); }
-// Count weeks that start within the given YYYY-MM (gives 4 or 5)
-function weeksInMonth(ym) {
+// Count occurrences of a specific day of the week (0-6) in a month (YYYY-MM)
+function countOccurrences(ym, dayOfWeek) {
   const [y, m] = ym.split("-").map(Number);
-  const days = new Date(y, m, 0).getDate();
-  return Math.floor(days / 7) + (days % 7 >= 1 ? 1 : 0);
+  const start = new Date(y, m - 1, 1);
+  const end = new Date(y, m, 0);
+  let count = 0;
+  let current = new Date(start);
+  while (current <= end) {
+    if (current.getDay() === dayOfWeek) count++;
+    current.setDate(current.getDate() + 1);
+  }
+  return count;
 }
+
 // Effective monthly contribution for a DPS savings goal
 function dpsMonthlyAmount(goal, ym) {
   const base = Number(goal.monthly_amount || 0);
-  return goal.frequency === "weekly" ? base * weeksInMonth(ym) : base;
+  return goal.frequency === "weekly" ? base * countOccurrences(ym, 1) : base; // Defaulting to Monday (1) for legacy DPS weeks
 }
+
 
 const PIE_COLORS = ["#6366f1", "#f43f5e", "#f59e0b", "#10b981", "#ec4899", "#0ea5e9", "#8b5cf6"];
 const SEGMENT_COLORS = {
@@ -178,8 +187,17 @@ export function Reports() {
     const totalDaily = (dailySpends || []).reduce((s, d) => s + Number(d.amount), 0);
 
     // Active EMI this month
-    const activeRecurring = (allRecurring || []).filter(r => r.start_month <= selectedMonth && r.end_month >= selectedMonth);
-    const totalRecurring = activeRecurring.reduce((s, r) => s + Number(r.amount), 0);
+    const activeRecurring = (allRecurring || []).filter(r => {
+      return r.start_date <= end && r.end_date >= start;
+    });
+    const totalRecurring = activeRecurring.reduce((s, r) => {
+      const base = Number(r.amount);
+      if (r.frequency === "weekly") {
+        return s + (base * countOccurrences(selectedMonth, r.payment_day));
+      }
+      return s + base;
+    }, 0);
+
 
     // Active DPS this month
     const activeDps = (allDpsSavings || []).filter(g => {
@@ -193,8 +211,17 @@ export function Reports() {
     const pIncome = (prevIncomes || []).reduce((s, i) => s + Number(i.amount), 0);
     const pOneTime = (prevExpenses || []).reduce((s, e) => s + Number(e.amount), 0);
     const pDaily = (prevDailySpends || []).reduce((s, d) => s + Number(d.amount), 0);
-    const prevActiveRec = (allRecurring || []).filter(r => r.start_month <= prevMonth && r.end_month >= prevMonth);
-    const pRecurring = prevActiveRec.reduce((s, r) => s + Number(r.amount), 0);
+    const prevActiveRec = (allRecurring || []).filter(r => {
+      return r.start_date <= prevEnd && r.end_date >= prevStart;
+    });
+    const pRecurring = prevActiveRec.reduce((s, r) => {
+      const base = Number(r.amount);
+      if (r.frequency === "weekly") {
+        return s + (base * countOccurrences(prevMonth, r.payment_day));
+      }
+      return s + base;
+    }, 0);
+
 
     setIncome(totalIncome);
     setOneTime(totalOneTime);
@@ -251,8 +278,18 @@ export function Reports() {
 
     // Also add recurring EMI to each month in trend
     setTrendData(months6.map(ym => {
-      const activeRec = (allRecurring || []).filter(r => r.start_month <= ym && r.end_month >= ym);
-      const recAmt = activeRec.reduce((s, r) => s + Number(r.amount), 0);
+      const { start: mStart, end: mEnd } = monthRange(ym);
+      const activeRec = (allRecurring || []).filter(r => {
+        return r.start_date <= mEnd && r.end_date >= mStart;
+      });
+      const recAmt = activeRec.reduce((s, r) => {
+        const base = Number(r.amount);
+        if (r.frequency === "weekly") {
+          return s + (base * countOccurrences(ym, r.payment_day));
+        }
+        return s + base;
+      }, 0);
+
       const activeDpsM = (allDpsSavings || []).filter(g => {
         if (!g.start_month || !g.duration_months) return false;
         return g.start_month <= ym && addMonths(g.start_month, g.duration_months - 1) >= ym;

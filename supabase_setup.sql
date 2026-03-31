@@ -66,11 +66,27 @@ CREATE TABLE IF NOT EXISTS public.recurring_expenses (
     name TEXT NOT NULL,
     category TEXT NOT NULL,
     amount NUMERIC NOT NULL,
-    start_month TEXT NOT NULL,  -- 'YYYY-MM'
-    end_month TEXT NOT NULL,    -- 'YYYY-MM'
+    start_month TEXT,            -- Deprecated
+    end_month TEXT,              -- Deprecated
+    start_date DATE,             -- New
+    end_date DATE,               -- New
+    frequency TEXT DEFAULT 'monthly', -- 'monthly' or 'weekly'
+    payment_day INTEGER DEFAULT 1,    -- 0-6 for weekly, 1-31 for monthly
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
+
+-- Migration for recurring_expenses columns
+DO $$ 
+BEGIN 
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'recurring_expenses' AND column_name = 'start_month') THEN
+        UPDATE public.recurring_expenses 
+        SET start_date = (start_month || '-01')::DATE,
+            end_date = (end_month || '-01')::DATE
+        WHERE start_date IS NULL;
+    END IF;
+END $$;
+
 
 -- Create loans table
 CREATE TABLE IF NOT EXISTS public.loans (

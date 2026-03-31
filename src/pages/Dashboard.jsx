@@ -17,6 +17,20 @@ function getPct(current, previous) {
   return pct > 0 ? `+${pct}` : `${pct}`;
 }
 
+function countOccurrences(ym, dayOfWeek) {
+  const [y, m] = ym.split("-").map(Number);
+  const start = new Date(y, m - 1, 1);
+  const end = new Date(y, m, 0);
+  let count = 0;
+  let current = new Date(start);
+  while (current <= end) {
+    if (current.getDay() === dayOfWeek) count++;
+    current.setDate(current.getDate() + 1);
+  }
+  return count;
+}
+
+
 export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ balance: 0, income: 0, expense: 0, savings: 0 });
@@ -67,8 +81,19 @@ export function Dashboard() {
     const totalDaily = (allDaily || []).reduce((s, i) => s + Number(i.amount), 0);
     
     // Active Recurring Expenses
-    const activeRecurring = (allRecurring || []).filter(r => r.start_month <= activeMonth && r.end_month >= activeMonth);
-    const totalRecurring = activeRecurring.reduce((s, r) => s + Number(r.amount), 0);
+    const activeRecurring = (allRecurring || []).filter(r => {
+      const monthStart = `${activeMonth}-01`;
+      const monthEnd = new Date(year, month + 1, 0).toISOString().split("T")[0];
+      return r.start_date <= monthEnd && r.end_date >= monthStart;
+    });
+    const totalRecurring = activeRecurring.reduce((s, r) => {
+      const base = Number(r.amount);
+      if (r.frequency === "weekly") {
+        return s + (base * countOccurrences(activeMonth, r.payment_day));
+      }
+      return s + base;
+    }, 0);
+
 
     // Active DPS Savings
     const activeDps = (allSavings || []).filter(g => {
@@ -82,12 +107,11 @@ export function Dashboard() {
     const totalDps = activeDps.reduce((s, g) => {
       const base = Number(g.monthly_amount || 0);
       if (g.frequency === "weekly") {
-         const days = new Date(year, month + 1, 0).getDate();
-         const weeks = Math.floor(days / 7) + (days % 7 >= 1 ? 1 : 0);
-         return s + (base * weeks);
+         return s + (base * countOccurrences(activeMonth, 1)); // Defaulting to Monday (1) for legacy DPS
       }
       return s + base;
     }, 0);
+
 
     const totalAllExpenses = totalOneTime + totalDaily + totalRecurring + totalDps;
     const totalSavings = (allSavings || []).reduce((s, g) => s + Number(g.current_amount), 0);
@@ -149,12 +173,36 @@ export function Dashboard() {
 
     setBarData(months.map(m => {
       const key = `${m.year}-${String(m.month + 1).padStart(2, "0")}`;
+      const monthStart = `${key}-01`;
+      const monthEnd = new Date(m.year, m.month + 1, 0).toISOString().split("T")[0];
+
+      // Add recurring for trend
+      const monthlyRec = (allRecurring || []).filter(r => r.start_date <= monthEnd && r.end_date >= monthStart)
+        .reduce((s, r) => {
+          const base = Number(r.amount);
+          return s + (r.frequency === "weekly" ? base * countOccurrences(key, r.payment_day) : base);
+        }, 0);
+
+      // Add DPS for trend
+      const monthlyDps = (allSavings || []).filter(g => {
+        if (!g.is_recurring || !g.start_month || !g.duration_months) return false;
+        const [sy, sm] = g.start_month.split("-").map(Number);
+        const start = new Date(sy, sm - 1, 1);
+        const current = new Date(m.year, m.month, 1);
+        const end = new Date(sy, sm - 1 + g.duration_months - 1, 1);
+        return current >= start && current <= end;
+      }).reduce((s, g) => {
+        const base = Number(g.monthly_amount || 0);
+        return s + (g.frequency === "weekly" ? base * countOccurrences(key, 1) : base);
+      }, 0);
+
       return {
         name: m.label,
         income: incomeMap[key] || 0,
-        expense: (expenseMap[key] || 0) + (dailyMap[key] || 0),
+        expense: (expenseMap[key] || 0) + (dailyMap[key] || 0) + monthlyRec + monthlyDps,
       };
     }));
+
 
     setLoading(false);
   }, []);

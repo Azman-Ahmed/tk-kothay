@@ -2,9 +2,11 @@ import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { 
   LayoutDashboard, Wallet, RepeatIcon, CreditCard, 
-  Coffee, PiggyBank, BarChart2, Users, FileText, ChevronDown, ChevronRight, Calculator 
+  Coffee, PiggyBank, BarChart2, Users, FileText, ChevronDown, ChevronRight, Calculator, X 
 } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { useAppContext } from "../../context/AppContext";
+
 
 const navItems = [
   { name: "Dashboard",          href: "/",          icon: LayoutDashboard },
@@ -24,16 +26,20 @@ const bottomItems = [
   { name: "Balance Sheet",      href: "/balance",   icon: FileText },
 ];
 
-export function Sidebar({ className }) {
+export function Sidebar() {
+  const { isMobileMenuOpen, setIsMobileMenuOpen } = useAppContext();
   const location = useLocation();
   const isExpenseActive = expenseSubItems.some(item => location.pathname === item.href);
   const [expensesOpen, setExpensesOpen] = useState(isExpenseActive);
+
+  const closeMobileMenu = () => setIsMobileMenuOpen(false);
 
   const NavItem = ({ item, isSub = false }) => (
     <NavLink
       key={item.name}
       to={item.href}
       end={item.href === "/"}
+      onClick={closeMobileMenu}
       className={({ isActive }) =>
         cn(
           "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-muted",
@@ -48,13 +54,29 @@ export function Sidebar({ className }) {
   );
 
   return (
-    <aside className={cn("hidden lg:flex w-64 flex-col border-r bg-card h-screen sticky top-0 left-0", className)}>
-      <div className="flex h-16 items-center border-b px-6">
-        <div className="flex items-center gap-2 font-bold text-xl text-primary">
-          <Wallet className="h-6 w-6" />
-          <span>MoneyMate</span>
+    <>
+      {/* Mobile Backdrop */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden backdrop-blur-sm transition-opacity"
+          onClick={closeMobileMenu}
+        />
+      )}
+
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-50 w-64 flex-col border-r bg-card h-screen transition-transform duration-300 transform lg:translate-x-0 lg:static lg:flex",
+        isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="flex h-16 items-center justify-between border-b px-6">
+          <div className="flex items-center gap-2 font-bold text-xl text-primary">
+            <Wallet className="h-6 w-6" />
+            <span>MoneyMate</span>
+          </div>
+          <button className="lg:hidden p-1 rounded-md hover:bg-muted" onClick={closeMobileMenu}>
+            <X className="h-5 w-5" />
+          </button>
         </div>
-      </div>
+
       <nav className="flex-1 space-y-1 p-4 overflow-y-auto">
         {navItems.map((item) => <NavItem key={item.name} item={item} />)}
 
@@ -86,6 +108,7 @@ export function Sidebar({ className }) {
       <div className="border-t p-4 text-xs text-muted-foreground text-center">
         v1.0.0
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

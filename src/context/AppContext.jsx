@@ -8,6 +8,7 @@ export const AppProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [session, setSession] = useState(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const supabase = getSupabaseBrowserClient();
 
   useEffect(() => {
@@ -55,7 +56,16 @@ export const AppProvider = ({ children }) => {
   };
 
   return (
-    <AppContext.Provider value={{ theme, toggleTheme, user, session, isLoadingAuth, handleSignOut }}>
+    <AppContext.Provider value={{ 
+      theme, 
+      toggleTheme, 
+      user, 
+      session, 
+      isLoadingAuth, 
+      handleSignOut,
+      isMobileMenuOpen,
+      setIsMobileMenuOpen
+    }}>
       {children}
     </AppContext.Provider>
   );
