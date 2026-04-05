@@ -178,3 +178,22 @@ CREATE POLICY "Users can view their own loans" ON public.loans FOR SELECT USING 
 CREATE POLICY "Users can insert their own loans" ON public.loans FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update their own loans" ON public.loans FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Users can delete their own loans" ON public.loans FOR DELETE USING (auth.uid() = user_id);
+
+-- Table for tracking monthly EMI/Recurring payments
+CREATE TABLE IF NOT EXISTS public.recurring_payments (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  recurring_expense_id UUID REFERENCES public.recurring_expenses(id) ON DELETE CASCADE,
+  payment_month TEXT NOT NULL, -- Format: "YYYY-MM"
+  paid_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  UNIQUE(recurring_expense_id, payment_month)
+);
+
+ALTER TABLE public.recurring_payments ENABLE ROW LEVEL SECURITY;
+
+-- Polices: Users can manage their own payments
+CREATE POLICY "Users can manage their own recurring payments" 
+  ON public.recurring_payments FOR ALL 
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+

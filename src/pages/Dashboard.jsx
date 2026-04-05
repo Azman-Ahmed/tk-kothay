@@ -82,17 +82,31 @@ export function Dashboard() {
     
     // Active Recurring Expenses
     const activeRecurring = (allRecurring || []).filter(r => {
-      const monthStart = `${activeMonth}-01`;
-      const monthEnd = new Date(year, month + 1, 0).toISOString().split("T")[0];
-      return r.start_date <= monthEnd && r.end_date >= monthStart;
+      // If we have the new date fields
+      if (r.start_date) {
+        const monthStart = `${activeMonth}-01`;
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        const monthEnd = `${activeMonth}-${String(lastDay).padStart(2, "0")}`;
+        
+        const isStarted = r.start_date <= monthEnd;
+        const isNotEnded = !r.end_date || r.end_date >= monthStart;
+        return isStarted && isNotEnded;
+      }
+      // Fallback
+      if (r.start_month) {
+        return r.start_month <= activeMonth && (!r.end_month || r.end_month >= activeMonth);
+      }
+      return false;
     });
+    
     const totalRecurring = activeRecurring.reduce((s, r) => {
       const base = Number(r.amount);
       if (r.frequency === "weekly") {
-        return s + (base * countOccurrences(activeMonth, r.payment_day));
+        return s + (base * countOccurrences(activeMonth, r.payment_day || 1));
       }
       return s + base;
     }, 0);
+
 
 
     // Active DPS Savings
@@ -174,14 +188,24 @@ export function Dashboard() {
     setBarData(months.map(m => {
       const key = `${m.year}-${String(m.month + 1).padStart(2, "0")}`;
       const monthStart = `${key}-01`;
-      const monthEnd = new Date(m.year, m.month + 1, 0).toISOString().split("T")[0];
+      const lastDayM = new Date(m.year, m.month + 1, 0).getDate();
+      const monthEnd = `${key}-${String(lastDayM).padStart(2, "0")}`;
 
       // Add recurring for trend
-      const monthlyRec = (allRecurring || []).filter(r => r.start_date <= monthEnd && r.end_date >= monthStart)
+      const monthlyRec = (allRecurring || []).filter(r => {
+          if (r.start_date) {
+            return r.start_date <= monthEnd && (!r.end_date || r.end_date >= monthStart);
+          }
+          if (r.start_month) {
+            return r.start_month <= key && (!r.end_month || r.end_month >= key);
+          }
+          return false;
+        })
         .reduce((s, r) => {
           const base = Number(r.amount);
-          return s + (r.frequency === "weekly" ? base * countOccurrences(key, r.payment_day) : base);
+          return s + (r.frequency === "weekly" ? base * countOccurrences(key, r.payment_day || 1) : base);
         }, 0);
+
 
       // Add DPS for trend
       const monthlyDps = (allSavings || []).filter(g => {

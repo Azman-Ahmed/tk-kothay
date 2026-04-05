@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Pencil, Trash2, X, Check, RepeatIcon, ChevronLeft, ChevronRight,
-  PiggyBank, Coffee, Home, Bus, Zap, Film, ShoppingCart, Plus
+  PiggyBank, Coffee, Home, Bus, Zap, Film, ShoppingCart, Plus, CheckCircle
 } from "lucide-react";
+
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -42,6 +43,7 @@ function dpsMonthlyAmount(goal, ym) {
   return base;
 }
 function monthLabel(ym) {
+  if (!ym) return "—";
   const [y, m] = ym.split("-");
   return `${MONTHS[parseInt(m) - 1]} ${y}`;
 }
@@ -81,6 +83,9 @@ export function Expenses() {
   const [editingRecId, setEditingRecId] = useState(null);
   const [deleteRecConfirm, setDeleteRecConfirm] = useState(null);
   const [showRecForm, setShowRecForm] = useState(false);
+  const [paidRecIds, setPaidRecIds] = useState(new Set());
+  const [showPaid, setShowPaid] = useState(false);
+
 
   // DPS contributions from savings
   const [dpsSavings, setDpsSavings] = useState([]);
@@ -101,7 +106,20 @@ export function Expenses() {
     if (error) console.error(error);
     else setRecurring(data || []);
     setLoadingRec(false);
-  }, []);
+  }, [supabase]);
+
+  const fetchPaidPayments = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data, error } = await supabase
+      .from("recurring_payments")
+      .select("recurring_expense_id")
+      .eq("payment_month", selectedMonth)
+      .eq("user_id", user.id);
+    if (error) console.error(error);
+    else setPaidRecIds(new Set(data.map(p => p.recurring_expense_id)));
+  }, [supabase, selectedMonth]);
+
 
   const fetchDpsSavings = useCallback(async () => {
     setLoadingDps(true);
@@ -114,14 +132,32 @@ export function Expenses() {
     setLoadingDps(false);
   }, []);
 
-  useEffect(() => { fetchRecurring(); fetchDpsSavings(); }, [fetchRecurring, fetchDpsSavings]);
+  useEffect(() => { 
+    fetchRecurring(); 
+    fetchDpsSavings(); 
+    fetchPaidPayments();
+  }, [fetchRecurring, fetchDpsSavings, fetchPaidPayments]);
+
 
   // Filter EMI entries active this month
   const activeEmi = recurring.filter(r => {
-    const monthStart = `${selectedMonth}-01`;
-    const monthEnd = new Date(selectedMonth.split("-")[0], selectedMonth.split("-")[1], 0).toISOString().split("T")[0];
-    return r.start_date <= monthEnd && r.end_date >= monthStart;
+    // If we have the new date fields
+    if (r.start_date) {
+      const monthStart = `${selectedMonth}-01`;
+      const monthEnd = new Date(selectedMonth.split("-")[0], selectedMonth.split("-")[1], 0).getDate();
+      const monthEndStr = `${selectedMonth}-${String(monthEnd).padStart(2, "0")}`;
+      
+      const isStarted = r.start_date <= monthEndStr;
+      const isNotEnded = !r.end_date || r.end_date >= monthStart;
+      return isStarted && isNotEnded;
+    }
+    // Fallback to old month-based columns if start_date is missing
+    if (r.start_month) {
+      return r.start_month <= selectedMonth && (!r.end_month || r.end_month >= selectedMonth);
+    }
+    return false;
   });
+
 
   // Filter DPS savings active this month
   const activeDps = dpsSavings.filter(g => {
@@ -176,6 +212,26 @@ export function Expenses() {
     setDeleteRecConfirm(null);
     fetchRecurring();
   };
+
+  const handleTogglePaid = async (recId, currentlyPaid) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    if (currentlyPaid) {
+      await supabase.from("recurring_payments")
+        .delete()
+        .eq("recurring_expense_id", recId)
+        .eq("payment_month", selectedMonth);
+    } else {
+      await supabase.from("recurring_payments").insert([{
+        recurring_expense_id: recId,
+        payment_month: selectedMonth,
+        user_id: user.id
+      }]);
+    }
+    fetchPaidPayments();
+  };
+
 
   const emiTotal = activeEmi.reduce((s, r) => {
     const base = Number(r.amount);
@@ -312,11 +368,22 @@ export function Expenses() {
         {/* EMI / Recurring section */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-lg flex items-center gap-2">
-              <RepeatIcon className="h-5 w-5 text-indigo-500" /> EMI & Recurring Bills
-            </h2>
+            <div className="flex items-center gap-3">
+              <h2 className="font-semibold text-lg flex items-center gap-2">
+                <RepeatIcon className="h-5 w-5 text-indigo-500" /> EMI & Recurring Bills
+              </h2>
+              <button 
+                onClick={() => setShowPaid(!showPaid)}
+                className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full transition-colors ${
+                  showPaid ? "bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                {showPaid ? "Showing Paid" : "Hide Paid"}
+              </button>
+            </div>
             <span className="text-sm text-muted-foreground">{activeEmi.length} active in {monthLabel(selectedMonth)}</span>
           </div>
+
 
           {/* Active this month */}
           {loadingRec ? (
@@ -333,16 +400,26 @@ export function Expenses() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {activeEmi.map(rec => {
+              {activeEmi
+                .filter(rec => showPaid || !paidRecIds.has(rec.id))
+                .map(rec => {
                 const { icon: Icon, color, bg } = getCategoryAssets(rec.category);
+                const isPaid = paidRecIds.has(rec.id);
                 return (
-                  <div key={rec.id} className="flex items-center justify-between p-3 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/20">
+                  <div key={rec.id} className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
+                    isPaid 
+                      ? "border-emerald-100 dark:border-emerald-900/30 bg-emerald-50/30 dark:bg-emerald-950/10 opacity-75" 
+                      : "border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/20"
+                  }`}>
                     <div className="flex items-center gap-3">
-                      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${bg} ${color}`}>
+                      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${isPaid ? "bg-emerald-100 text-emerald-600" : `${bg} ${color}`}`}>
                         <Icon className="h-4 w-4" />
                       </div>
                       <div>
-                        <p className="font-medium text-sm">{rec.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className={`font-medium text-sm ${isPaid ? "line-through text-muted-foreground" : ""}`}>{rec.name}</p>
+                          {isPaid && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold uppercase">Paid</span>}
+                        </div>
                         <p className="text-xs text-muted-foreground">
                           {rec.category} • {rec.start_date} → {rec.end_date}
                           <br />
@@ -352,25 +429,39 @@ export function Expenses() {
                           }
                         </p>
                       </div>
-
                     </div>
                     <div className="flex items-center gap-2 text-right">
                       <div>
-                        <span className="font-bold text-sm text-indigo-600 dark:text-indigo-400 block">- ৳{Number(rec.amount).toLocaleString()}/{rec.frequency === 'weekly' ? 'wk' : 'mo'}</span>
-                        {rec.frequency === 'weekly' && (
+                        <span className={`font-bold text-sm block ${isPaid ? "text-muted-foreground line-through" : "text-indigo-600 dark:text-indigo-400"}`}>
+                          - ৳{Number(rec.amount).toLocaleString()}/{rec.frequency === 'weekly' ? 'wk' : 'mo'}
+                        </span>
+                        {rec.frequency === 'weekly' && !isPaid && (
                           <span className="text-[10px] text-muted-foreground block">
                             (Total: ৳{(Number(rec.amount) * countOccurrences(selectedMonth, rec.payment_day)).toLocaleString()} this month)
                           </span>
                         )}
                       </div>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-blue-500" onClick={() => handleEditRec(rec)}><Pencil className="h-3.5 w-3.5" /></Button>
-                      <DeleteBtns id={rec.id} onConfirm={handleDeleteRec} />
+                      
+                      <div className="flex items-center gap-1 ml-2">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className={`h-8 px-2 gap-1.5 ${isPaid ? "text-emerald-600 hover:text-emerald-700" : "text-slate-500 hover:text-indigo-600"}`}
+                          onClick={() => handleTogglePaid(rec.id, isPaid)}
+                        >
+                          <CheckCircle className={`h-4 w-4 ${isPaid ? "fill-emerald-100" : ""}`} />
+                          <span className="text-xs font-semibold">{isPaid ? "Paid" : "Pay"}</span>
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-blue-500" onClick={() => handleEditRec(rec)}><Pencil className="h-3.5 w-3.5" /></Button>
+                        <DeleteBtns id={rec.id} onConfirm={handleDeleteRec} />
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
+
 
           {/* All recurring (collapsed view) */}
           {recurring.length > activeEmi.length && (
@@ -379,12 +470,15 @@ export function Expenses() {
                 View all {recurring.length} recurring entries
               </summary>
               <div className="space-y-2 mt-3">
-                {recurring.filter(r => !(r.start_month <= selectedMonth && r.end_month >= selectedMonth)).map(rec => (
+                {recurring.filter(r => !activeEmi.find(a => a.id === r.id)).map(rec => (
                   <div key={rec.id} className="flex items-center justify-between p-2.5 rounded-lg border border-border opacity-50 text-sm">
                     <div>
                       <span className="font-medium">{rec.name}</span>
-                      <span className="text-xs text-muted-foreground ml-2">({monthLabel(rec.start_month)} – {monthLabel(rec.end_month)})</span>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        ({rec.start_date ? rec.start_date.slice(0, 7) : monthLabel(rec.start_month)} – {rec.end_date ? rec.end_date.slice(0,7) : monthLabel(rec.end_month)})
+                      </span>
                     </div>
+
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-indigo-600 dark:text-indigo-400">৳{Number(rec.amount).toLocaleString()}/mo</span>
                       <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-blue-500" onClick={() => handleEditRec(rec)}><Pencil className="h-3.5 w-3.5" /></Button>

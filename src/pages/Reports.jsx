@@ -188,15 +188,25 @@ export function Reports() {
 
     // Active EMI this month
     const activeRecurring = (allRecurring || []).filter(r => {
-      return r.start_date <= end && r.end_date >= start;
+      if (r.start_date) {
+        const isStarted = r.start_date <= end;
+        const isNotEnded = !r.end_date || r.end_date >= start;
+        return isStarted && isNotEnded;
+      }
+      if (r.start_month) {
+        return r.start_month <= selectedMonth && (!r.end_month || r.end_month >= selectedMonth);
+      }
+      return false;
     });
+    
     const totalRecurring = activeRecurring.reduce((s, r) => {
       const base = Number(r.amount);
       if (r.frequency === "weekly") {
-        return s + (base * countOccurrences(selectedMonth, r.payment_day));
+        return s + (base * countOccurrences(selectedMonth, r.payment_day || 1));
       }
       return s + base;
     }, 0);
+
 
 
     // Active DPS this month
@@ -212,15 +222,22 @@ export function Reports() {
     const pOneTime = (prevExpenses || []).reduce((s, e) => s + Number(e.amount), 0);
     const pDaily = (prevDailySpends || []).reduce((s, d) => s + Number(d.amount), 0);
     const prevActiveRec = (allRecurring || []).filter(r => {
-      return r.start_date <= prevEnd && r.end_date >= prevStart;
+      if (r.start_date) {
+        return r.start_date <= prevEnd && (!r.end_date || r.end_date >= prevStart);
+      }
+      if (r.start_month) {
+        return r.start_month <= prevMonth && (!r.end_month || r.end_month >= prevMonth);
+      }
+      return false;
     });
     const pRecurring = prevActiveRec.reduce((s, r) => {
       const base = Number(r.amount);
       if (r.frequency === "weekly") {
-        return s + (base * countOccurrences(prevMonth, r.payment_day));
+        return s + (base * countOccurrences(prevMonth, r.payment_day || 1));
       }
       return s + base;
     }, 0);
+
 
 
     setIncome(totalIncome);
@@ -280,15 +297,22 @@ export function Reports() {
     setTrendData(months6.map(ym => {
       const { start: mStart, end: mEnd } = monthRange(ym);
       const activeRec = (allRecurring || []).filter(r => {
-        return r.start_date <= mEnd && r.end_date >= mStart;
+        if (r.start_date) {
+          return r.start_date <= mEnd && (!r.end_date || r.end_date >= mStart);
+        }
+        if (r.start_month) {
+          return r.start_month <= ym && (!r.end_month || r.end_month >= ym);
+        }
+        return false;
       });
       const recAmt = activeRec.reduce((s, r) => {
         const base = Number(r.amount);
         if (r.frequency === "weekly") {
-          return s + (base * countOccurrences(ym, r.payment_day));
+          return s + (base * countOccurrences(ym, r.payment_day || 1));
         }
         return s + base;
       }, 0);
+
 
       const activeDpsM = (allDpsSavings || []).filter(g => {
         if (!g.start_month || !g.duration_months) return false;
