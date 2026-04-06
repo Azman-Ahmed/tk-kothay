@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS public.savings_goals (
     frequency TEXT DEFAULT 'monthly',        -- 'monthly' or 'weekly'
     monthly_amount NUMERIC DEFAULT 0,        -- amount per installment (weekly or monthly)
     start_month TEXT,                        -- 'YYYY-MM' e.g. '2026-01'
+    start_date DATE,                         -- New: Exact start date
+    mature_date DATE,                        -- New: Exact maturity date
     duration_months INTEGER,                 -- how many months the plan runs
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
@@ -57,7 +59,20 @@ ALTER TABLE public.savings_goals ADD COLUMN IF NOT EXISTS is_recurring BOOLEAN D
 ALTER TABLE public.savings_goals ADD COLUMN IF NOT EXISTS frequency TEXT DEFAULT 'monthly';
 ALTER TABLE public.savings_goals ADD COLUMN IF NOT EXISTS monthly_amount NUMERIC DEFAULT 0;
 ALTER TABLE public.savings_goals ADD COLUMN IF NOT EXISTS start_month TEXT;
+ALTER TABLE public.savings_goals ADD COLUMN IF NOT EXISTS start_date DATE;
+ALTER TABLE public.savings_goals ADD COLUMN IF NOT EXISTS mature_date DATE;
 ALTER TABLE public.savings_goals ADD COLUMN IF NOT EXISTS duration_months INTEGER;
+
+-- Migration for savings_goals columns
+DO $$ 
+BEGIN 
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'savings_goals' AND column_name = 'start_month') THEN
+        UPDATE public.savings_goals 
+        SET start_date = (start_month || '-01')::DATE
+        WHERE start_date IS NULL AND start_month IS NOT NULL;
+    END IF;
+END $$;
+
 
 -- Create recurring_expenses (EMI) table
 CREATE TABLE IF NOT EXISTS public.recurring_expenses (
