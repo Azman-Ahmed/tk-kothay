@@ -4,8 +4,9 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card"
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { getSupabaseBrowserClient } from "../lib/supabase/browser-client";
+import { formatLocalDate } from "../lib/utils";
 
-const TODAY = new Date().toISOString().split("T")[0];
+const TODAY = formatLocalDate();
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 function toYearMonth(date) {
@@ -43,8 +44,9 @@ export function DailySpend() {
   const shiftDay = (delta) => {
     const [y, m, day] = selectedDate.split("-").map(Number);
     const d = new Date(y, m - 1, day + delta);
-    setSelectedDate(d.toISOString().split("T")[0]);
+    setSelectedDate(formatLocalDate(d));
   };
+
 
   // Fetch single-day entries
   const fetchDaySpends = useCallback(async () => {

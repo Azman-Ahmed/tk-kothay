@@ -7,6 +7,8 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card"
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { getSupabaseBrowserClient } from "../lib/supabase/browser-client";
+import { formatLocalDate } from "../lib/utils";
+
 
 const CATEGORY_MAP = {
   Shopping:      { icon: ShoppingCart, color: "text-pink-500",    bg: "bg-pink-100 dark:bg-pink-900/30" },
@@ -32,7 +34,8 @@ function monthLabel(ym) {
 const INITIAL_FORM = {
   category: "Shopping",
   amount: "",
-  date: new Date().toISOString().split("T")[0],
+  date: formatLocalDate(),
+
   notes: "",
 };
 

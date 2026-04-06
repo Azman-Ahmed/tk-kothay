@@ -4,15 +4,18 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card"
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { getSupabaseBrowserClient } from "../lib/supabase/browser-client";
+import { formatLocalDate } from "../lib/utils";
+
 
 const INITIAL_FORM = {
   partner_name: "",
   amount: "",
   type: "taken", // 'taken' or 'given'
-  start_date: new Date().toISOString().split("T")[0],
+  start_date: formatLocalDate(),
   due_date: "",
   notes: "",
 };
+
 
 export function Loans() {
   const [loans, setLoans] = useState([]);

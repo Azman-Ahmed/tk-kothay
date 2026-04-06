@@ -8,6 +8,8 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card"
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { getSupabaseBrowserClient } from "../lib/supabase/browser-client";
+import { formatLocalDate } from "../lib/utils";
+
 
 const CATEGORY_MAP = {
   Rent: { icon: Home, color: "text-blue-500", bg: "bg-blue-100 dark:bg-blue-900/30" },
@@ -65,8 +67,9 @@ function countOccurrences(ym, dayOfWeek) {
 
 const INITIAL_REC_FORM = {
   name: "", category: "EMI", amount: "",
-  start_date: new Date().toISOString().split("T")[0], 
-  end_date: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split("T")[0],
+  start_date: formatLocalDate(), 
+  end_date: formatLocalDate(new Date(new Date().setFullYear(new Date().getFullYear() + 1))),
+
   frequency: "monthly",
   payment_day: "1", // Date of month or Day of week (0-6)
   notes: "",

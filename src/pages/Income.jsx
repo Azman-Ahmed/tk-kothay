@@ -4,6 +4,8 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card"
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { getSupabaseBrowserClient } from "../lib/supabase/browser-client";
+import { formatLocalDate } from "../lib/utils";
+
 
 const SOURCE_MAP = {
   Salary:     { icon: Building,    color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-100 dark:bg-emerald-900/30" },
@@ -25,7 +27,8 @@ function monthLabel(ym) {
   return `${MONTHS[parseInt(m) - 1]} ${y}`;
 }
 
-const INITIAL_FORM = { source: "Salary", amount: "", date: new Date().toISOString().split("T")[0], notes: "" };
+const INITIAL_FORM = { source: "Salary", amount: "", date: formatLocalDate(), notes: "" };
+
 
 export function Income() {
   const [selectedMonth, setSelectedMonth] = useState(toYearMonth(new Date()));
