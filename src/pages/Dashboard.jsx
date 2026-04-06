@@ -63,19 +63,16 @@ export function Dashboard() {
       { data: lastMonthExpenses },
       { data: allLoans },
       { data: allRecurring },
-      { data: allManualSavings },
     ] = await Promise.all([
       supabase.from("incomes").select("amount,date").gte("date", thisMonthStart).lte("date", thisMonthEnd),
       supabase.from("expenses").select("amount,category,date").gte("date", thisMonthStart).lte("date", thisMonthEnd),
       supabase.from("daily_spends").select("amount,date").gte("date", thisMonthStart).lte("date", thisMonthEnd),
-      supabase.from("savings_goals").select("*"), 
+      supabase.from("savings_goals").select("*"), // Fetch all goals to filter DPS and get target names
       supabase.from("incomes").select("amount").gte("date", lastMonthStart).lte("date", lastMonthEnd),
       supabase.from("expenses").select("amount").gte("date", lastMonthStart).lte("date", lastMonthEnd),
       supabase.from("loans").select("*").eq("type", "taken").gt("remaining_amount", 0).not("due_date", "is", null),
       supabase.from("recurring_expenses").select("*"),
-      supabase.from("savings_transactions").select("amount,date").gte("date", thisMonthStart).lte("date", thisMonthEnd),
     ]);
-
 
     const activeMonth = `${year}-${String(month + 1).padStart(2, "0")}`;
 
@@ -85,14 +82,17 @@ export function Dashboard() {
     
     // Active Recurring Expenses
     const activeRecurring = (allRecurring || []).filter(r => {
+      // If we have the new date fields
       if (r.start_date) {
         const monthStart = `${activeMonth}-01`;
         const lastDay = new Date(year, month + 1, 0).getDate();
         const monthEnd = `${activeMonth}-${String(lastDay).padStart(2, "0")}`;
+        
         const isStarted = r.start_date <= monthEnd;
         const isNotEnded = !r.end_date || r.end_date >= monthStart;
         return isStarted && isNotEnded;
       }
+      // Fallback
       if (r.start_month) {
         return r.start_month <= activeMonth && (!r.end_month || r.end_month >= activeMonth);
       }
@@ -107,6 +107,8 @@ export function Dashboard() {
       return s + base;
     }, 0);
 
+
+
     // Active DPS Savings
     const activeDps = (allSavings || []).filter(g => {
       if (!g.is_recurring || !g.start_month || !g.duration_months) return false;
@@ -119,13 +121,13 @@ export function Dashboard() {
     const totalDps = activeDps.reduce((s, g) => {
       const base = Number(g.monthly_amount || 0);
       if (g.frequency === "weekly") {
-         return s + (base * countOccurrences(activeMonth, 1));
+         return s + (base * countOccurrences(activeMonth, 1)); // Defaulting to Monday (1) for legacy DPS
       }
       return s + base;
     }, 0);
 
-    const totalManualSavings = (allManualSavings || []).reduce((s, i) => s + Number(i.amount), 0);
-    const totalAllExpenses = totalOneTime + totalDaily + totalRecurring + totalDps + totalManualSavings;
+
+    const totalAllExpenses = totalOneTime + totalDaily + totalRecurring + totalDps;
     const totalSavings = (allSavings || []).reduce((s, g) => s + Number(g.current_amount), 0);
     const balance = totalIncome - totalAllExpenses;
 
@@ -145,8 +147,6 @@ export function Dashboard() {
     if (totalDaily > 0) categoryMap["Daily Spend"] = (categoryMap["Daily Spend"] || 0) + totalDaily;
     if (totalRecurring > 0) categoryMap["Recurring EMI"] = (categoryMap["Recurring EMI"] || 0) + totalRecurring;
     if (totalDps > 0) categoryMap["DPS Savings"] = (categoryMap["DPS Savings"] || 0) + totalDps;
-    if (totalManualSavings > 0) categoryMap["Manual Savings"] = (categoryMap["Manual Savings"] || 0) + totalManualSavings;
-
     setPieData(Object.entries(categoryMap).map(([name, value]) => ({ name, value })));
 
     // Loan Reminders
@@ -154,12 +154,12 @@ export function Dashboard() {
       .filter(l => {
         const due = new Date(l.due_date);
         const diffDays = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
-        return diffDays <= 7 && diffDays >= -1;
+        return diffDays <= 7 && diffDays >= -1; // Due in 7 days or yesterday
       })
       .sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
     setLoanReminders(upcomingLoans);
 
-    // Bar chart: last 6 months
+    // Bar chart: last 6 months income vs expense
     const months = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(year, month - i, 1);
@@ -175,7 +175,7 @@ export function Dashboard() {
     const buildMap = (rows) => {
       const map = {};
       (rows || []).forEach(r => {
-        const key = r.date.slice(0, 7);
+        const key = r.date.slice(0, 7); // "YYYY-MM"
         map[key] = (map[key] || 0) + Number(r.amount);
       });
       return map;
@@ -191,13 +191,23 @@ export function Dashboard() {
       const lastDayM = new Date(m.year, m.month + 1, 0).getDate();
       const monthEnd = `${key}-${String(lastDayM).padStart(2, "0")}`;
 
+      // Add recurring for trend
       const monthlyRec = (allRecurring || []).filter(r => {
-          if (r.start_date) return r.start_date <= monthEnd && (!r.end_date || r.end_date >= monthStart);
-          if (r.start_month) return r.start_month <= key && (!r.end_month || r.end_month >= key);
+          if (r.start_date) {
+            return r.start_date <= monthEnd && (!r.end_date || r.end_date >= monthStart);
+          }
+          if (r.start_month) {
+            return r.start_month <= key && (!r.end_month || r.end_month >= key);
+          }
           return false;
         })
-        .reduce((s, r) => s + (r.frequency === "weekly" ? Number(r.amount) * countOccurrences(key, r.payment_day || 1) : Number(r.amount)), 0);
+        .reduce((s, r) => {
+          const base = Number(r.amount);
+          return s + (r.frequency === "weekly" ? base * countOccurrences(key, r.payment_day || 1) : base);
+        }, 0);
 
+
+      // Add DPS for trend
       const monthlyDps = (allSavings || []).filter(g => {
         if (!g.is_recurring || !g.start_month || !g.duration_months) return false;
         const [sy, sm] = g.start_month.split("-").map(Number);
@@ -205,10 +215,10 @@ export function Dashboard() {
         const current = new Date(m.year, m.month, 1);
         const end = new Date(sy, sm - 1 + g.duration_months - 1, 1);
         return current >= start && current <= end;
-      }).reduce((s, g) => s + (g.frequency === "weekly" ? Number(g.monthly_amount) * countOccurrences(key, 1) : Number(g.monthly_amount)), 0);
-
-      // Add manual savings for trend if possible
-      // (Skipping for now as we'd need to fetch 6 months of trans, but keeping it in the current month is major)
+      }).reduce((s, g) => {
+        const base = Number(g.monthly_amount || 0);
+        return s + (g.frequency === "weekly" ? base * countOccurrences(key, 1) : base);
+      }, 0);
 
       return {
         name: m.label,
@@ -219,7 +229,7 @@ export function Dashboard() {
 
 
     setLoading(false);
-  }, [supabase]);
+  }, []);
 
   useEffect(() => { fetchDashboardData(); }, [fetchDashboardData]);
 
