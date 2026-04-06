@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   ChevronLeft, ChevronRight, RefreshCw,
   ArrowUpRight, ArrowDownRight, Wallet, TrendingUp, TrendingDown,
-  PiggyBank, RepeatIcon, CreditCard, Coffee, AlertCircle
+  PiggyBank, RepeatIcon, CreditCard, Coffee, AlertCircle, Printer, Download
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card";
 import {
@@ -10,6 +10,8 @@ import {
   PieChart, Pie, Cell, LineChart, Line, ReferenceLine
 } from "recharts";
 import { getSupabaseBrowserClient } from "../lib/supabase/browser-client";
+import { exportToCSV } from "../lib/utils";
+
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -140,7 +142,11 @@ export function Reports() {
   const [slowestDay, setSlowestDay] = useState(null);
   const [avgDailySpend, setAvgDailySpend] = useState(0);
 
+  // Raw data for CSV export
+  const [rawTransactions, setRawTransactions] = useState([]);
+
   const supabase = getSupabaseBrowserClient();
+
 
   const shiftMonth = (delta) => {
     const [y, m] = selectedMonth.split("-").map(Number);
@@ -250,6 +256,15 @@ export function Reports() {
     setPrevDaily(pDaily);
     setPrevRecurring(pRecurring);
 
+    // Prepare raw data for CSV Export
+    const allTxs = [];
+    (incomes || []).forEach(i => allTxs.push({ Type: "Income", Category: i.source, Amount: i.amount, Date: i.date || selectedMonth }));
+    (expenses || []).forEach(e => allTxs.push({ Type: "One-Time", Category: e.category, Amount: e.amount, Date: e.date }));
+    (dailySpends || []).forEach(d => allTxs.push({ Type: "Daily", Category: "Daily Spent", Amount: d.amount, Date: d.date }));
+    activeRecurring.forEach(r => allTxs.push({ Type: "Recurring", Category: r.category || r.name, Amount: r.amount, Date: r.start_date || selectedMonth }));
+    activeDps.forEach(d => allTxs.push({ Type: "DPS", Category: d.name, Amount: dpsMonthlyAmount(d, selectedMonth), Date: selectedMonth }));
+    setRawTransactions(allTxs);
+
     // Expense breakdown pie
     const pieSlices = [];
     if (totalRecurring > 0) pieSlices.push({ name: "Recurring EMI", value: totalRecurring });
@@ -341,15 +356,34 @@ export function Reports() {
   const incPct = pctChange(income, prevIncome);
   const expPct = pctChange(totalExpenses, prevRecurring + prevOneTime + prevDaily);
 
+  const handleExportCSV = () => {
+    exportToCSV(rawTransactions, `MoneyMate_Transactions_${selectedMonth}`);
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
   return (
     <div className="space-y-6">
       {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="hide-on-print flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Monthly Summary</h1>
           <p className="text-muted-foreground">Full income vs expense breakdown with statistics.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Actions */}
+          <button onClick={handleExportCSV} disabled={loading || rawTransactions.length === 0}
+            className="flex items-center gap-1.5 text-sm font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50 px-3 py-2 rounded-lg transition-colors border border-emerald-200 dark:border-emerald-800 disabled:opacity-50">
+            <Download className="h-4 w-4" /> Export CSV
+          </button>
+          <button onClick={handlePrint}
+            className="flex items-center gap-1.5 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-muted px-3 py-2 rounded-lg transition-colors border border-border">
+            <Printer className="h-4 w-4" /> Print
+          </button>
+          <div className="w-px h-6 bg-border mx-1 hidden sm:block"></div>
+          {/* Month Nav */}
           <div className="flex items-center gap-1 bg-card border border-border rounded-lg px-2 py-1.5">
             <button onClick={() => shiftMonth(-1)} className="p-1 rounded hover:bg-muted transition-colors"><ChevronLeft className="h-4 w-4" /></button>
             <span className="text-sm font-semibold w-28 text-center">{monthLabel(selectedMonth)}</span>
@@ -358,9 +392,14 @@ export function Reports() {
           <button onClick={fetchData} disabled={loading}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 px-3 py-2 rounded-lg hover:bg-muted">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            {loading ? "Loading..." : "Refresh"}
           </button>
         </div>
+      </div>
+
+      {/* Print-only title */}
+      <div className="hidden print:block text-center mb-8 border-b pb-4">
+        <h1 className="text-3xl font-bold">Financial Statement</h1>
+        <p className="text-muted-foreground text-lg">{monthLabel(selectedMonth)}</p>
       </div>
 
       {/* ── Summary Cards ── */}

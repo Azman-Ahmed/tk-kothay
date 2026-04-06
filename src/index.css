@@ -55,3 +55,30 @@
     font-family: 'Inter', system-ui, sans-serif;
   }
 }
+
+/* ── Print Styles for Reports ── */
+@media print {
+  /* Hide UI elements that shouldn't be printed */
+  .hide-on-print {
+    display: none !important;
+  }
+  
+  /* Force background colors to print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Reset body and container constraints for clean printing */
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  
+  /* Ensure charts break nicely or don't break across pages */
+  .print-avoid-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}
+

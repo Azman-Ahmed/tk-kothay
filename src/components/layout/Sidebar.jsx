@@ -64,9 +64,10 @@ export function Sidebar() {
       )}
 
       <aside className={cn(
-        "fixed inset-y-0 left-0 z-50 w-64 flex-col border-r bg-card h-screen transition-transform duration-300 transform lg:translate-x-0 lg:static lg:flex",
+        "hide-on-print fixed inset-y-0 left-0 z-50 w-64 flex-col border-r bg-card h-screen transition-transform duration-300 transform lg:translate-x-0 lg:static lg:flex",
         isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
       )}>
+
         <div className="flex h-16 items-center justify-between border-b px-6">
           <div className="flex items-center gap-2 font-bold text-xl text-primary">
             <Wallet className="h-6 w-6" />

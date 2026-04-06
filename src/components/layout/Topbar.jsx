@@ -6,7 +6,8 @@ export function Topbar() {
   const { theme, toggleTheme, user, handleSignOut, setIsMobileMenuOpen } = useAppContext();
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b bg-card px-6 shadow-sm">
+    <header className="hide-on-print sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b bg-card px-6 shadow-sm">
+
       <div className="flex items-center gap-4 lg:hidden">
         <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(true)}>
           <Menu className="h-6 w-6" />
