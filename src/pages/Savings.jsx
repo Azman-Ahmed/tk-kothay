@@ -4,6 +4,8 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card"
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { getSupabaseBrowserClient } from "../lib/supabase/browser-client";
+import { formatLocalDate } from "../lib/utils";
+
 
 const GOAL_COLORS = [
   { label: "Blue",   value: "bg-blue-500" },
@@ -26,8 +28,12 @@ function monthLabel(ym) {
 
 const INITIAL_FORM = {
   name: "", current_amount: "", target_amount: "", color: "bg-blue-500",
-  is_recurring: false, frequency: "monthly", monthly_amount: "", start_month: toYearMonth(new Date()), duration_months: "",
+  is_recurring: false, frequency: "monthly", monthly_amount: "", 
+  start_date: formatLocalDate(), 
+  mature_date: formatLocalDate(new Date(new Date().setFullYear(new Date().getFullYear() + 1))), 
+  duration_months: "12",
 };
+
 const INITIAL_FUND_FORM = { amount: "" };
 
 export function Savings() {
@@ -66,9 +72,12 @@ export function Savings() {
       is_recurring: form.is_recurring,
       frequency: form.is_recurring ? form.frequency : 'monthly',
       monthly_amount: form.is_recurring ? Number(form.monthly_amount) || 0 : 0,
-      start_month: form.is_recurring ? form.start_month : null,
+      start_date: form.is_recurring ? form.start_date : null,
+      mature_date: form.is_recurring ? form.mature_date : null,
+      start_month: form.is_recurring ? form.start_date.slice(0, 7) : null,
       duration_months: form.is_recurring ? Number(form.duration_months) || null : null,
     };
+
     if (editingId) {
       await supabase.from("savings_goals").update(payload).eq("id", editingId);
     } else {
@@ -91,9 +100,11 @@ export function Savings() {
       is_recurring: !!goal.is_recurring,
       frequency: goal.frequency || "monthly",
       monthly_amount: String(goal.monthly_amount || ""),
-      start_month: goal.start_month || toYearMonth(new Date()),
+      start_date: goal.start_date || (goal.start_month ? goal.start_month + "-01" : formatLocalDate()),
+      mature_date: goal.mature_date || formatLocalDate(),
       duration_months: String(goal.duration_months || ""),
     });
+
     setShowForm(true);
     setAddFundsGoal(null);
   };
@@ -212,15 +223,35 @@ export function Savings() {
                       onChange={e => setForm({ ...form, monthly_amount: e.target.value })} />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Start Month</label>
-                    <Input type="month" value={form.start_month} onChange={e => setForm({ ...form, start_month: e.target.value })} />
+                    <label className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Start Date</label>
+                    <Input type="date" value={form.start_date} 
+                      onChange={e => {
+                        const newStart = e.target.value;
+                        const dur = parseInt(form.duration_months) || 0;
+                        const [y, m, d] = newStart.split("-").map(Number);
+                        const mature = new Date(y, m - 1 + dur, d);
+                        setForm({ ...form, start_date: newStart, mature_date: formatLocalDate(mature) });
+                      }} />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium">Duration (months)</label>
-                    <Input type="number" placeholder="e.g. 6" value={form.duration_months} onChange={e => setForm({ ...form, duration_months: e.target.value })} />
+                    <Input type="number" placeholder="e.g. 12" value={form.duration_months} 
+                      onChange={e => {
+                        const newDur = e.target.value;
+                        const durInt = parseInt(newDur) || 0;
+                        const [y, m, d] = form.start_date.split("-").map(Number);
+                        const mature = new Date(y, m - 1 + durInt, d);
+                        setForm({ ...form, duration_months: newDur, mature_date: formatLocalDate(mature) });
+                      }} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-rose-500 font-bold">Maturity Date</label>
+                    <Input type="date" value={form.mature_date} 
+                      onChange={e => setForm({ ...form, mature_date: e.target.value })} />
                   </div>
                 </>
               )}
+
 
               <div className={`space-y-1.5 ${form.is_recurring ? "sm:col-span-1" : "sm:col-span-2 lg:col-span-4"}`}>
                 <label className="text-sm font-medium">Progress Bar Color</label>
@@ -305,14 +336,20 @@ export function Savings() {
                   </div>
 
                   {/* DPS info badge */}
-                  {goal.is_recurring && goal.start_month && goal.duration_months && (
-                    <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 rounded-md px-2 py-1.5">
-                      <RepeatIcon className="h-3 w-3 shrink-0" />
-                      ৳{Number(goal.monthly_amount).toLocaleString()}/{goal.frequency === "weekly" ? "week" : "mo"}{" "}
-                      {goal.frequency === "weekly" && <span className="font-semibold">(≈৳{(Number(goal.monthly_amount) * 4).toLocaleString()}/mo)</span>}
-                      {" • "}{monthLabel(goal.start_month)} for {goal.duration_months} months
+                  {goal.is_recurring && goal.start_date && (
+                    <div className="flex flex-col gap-1 text-[11px] text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 rounded-md px-2 py-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <RepeatIcon className="h-3 w-3 shrink-0" />
+                        <span className="font-semibold">৳{Number(goal.monthly_amount).toLocaleString()}/{goal.frequency === "weekly" ? "wk" : "mo"}</span>
+                        <span>• {goal.duration_months} months</span>
+                      </div>
+                      <div className="flex justify-between border-t border-emerald-200 dark:border-emerald-800/50 pt-1 mt-0.5">
+                        <span>Started: {goal.start_date}</span>
+                        <span className="font-bold text-rose-600 dark:text-rose-400">Mature: {goal.mature_date || "—"}</span>
+                      </div>
                     </div>
                   )}
+
 
                   {/* Actions */}
                   {addFundsGoal === goal.id ? (

@@ -164,10 +164,24 @@ export function Expenses() {
 
   // Filter DPS savings active this month
   const activeDps = dpsSavings.filter(g => {
-    if (!g.start_month || !g.duration_months) return false;
-    const endMonth = addMonths(g.start_month, g.duration_months - 1);
-    return g.start_month <= selectedMonth && endMonth >= selectedMonth;
+    // Priority 1: Use new start_date and mature_date
+    if (g.start_date) {
+      const monthStart = `${selectedMonth}-01`;
+      const lastDay = new Date(selectedMonth.split("-")[0], selectedMonth.split("-")[1], 0).getDate();
+      const monthEndStr = `${selectedMonth}-${String(lastDay).padStart(2, "0")}`;
+      
+      const isStarted = g.start_date <= monthEndStr;
+      const isNotEnded = !g.mature_date || g.mature_date >= monthStart;
+      return isStarted && isNotEnded;
+    }
+    // Priority 2: Fallback to legacy month-based columns
+    if (g.start_month && g.duration_months) {
+      const endMonth = addMonths(g.start_month, g.duration_months - 1);
+      return g.start_month <= selectedMonth && endMonth >= selectedMonth;
+    }
+    return false;
   });
+
 
   // ---- Save EMI ----
   const handleSaveRec = async () => {
