@@ -4,6 +4,8 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card"
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { getSupabaseBrowserClient } from "../lib/supabase/browser-client";
+import { formatLocalDate } from "../lib/utils";
+
 
 const GOAL_COLORS = [
   { label: "Blue",   value: "bg-blue-500" },
@@ -41,17 +43,27 @@ export function Savings() {
   const [addFundsGoal, setAddFundsGoal] = useState(null);
   const [fundForm, setFundForm] = useState(INITIAL_FUND_FORM);
   const [activeTab, setActiveTab] = useState("all"); // "all" | "regular" | "dps"
+  const [transactions, setTransactions] = useState([]);
+
 
   const supabase = getSupabaseBrowserClient();
 
   const fetchGoals = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("savings_goals").select("*").order("created_at", { ascending: true });
-    if (error) console.error(error);
-    else setGoals(data || []);
+    const [goalsRes, transRes] = await Promise.all([
+      supabase.from("savings_goals").select("*").order("created_at", { ascending: true }),
+      supabase.from("savings_transactions").select("*").order("date", { ascending: false }).limit(20)
+    ]);
+    
+    if (goalsRes.error) console.error(goalsRes.error);
+    else setGoals(goalsRes.data || []);
+
+    if (transRes.error) console.error(transRes.error);
+    else setTransactions(transRes.data || []);
+
     setLoading(false);
-  }, []);
+  }, [supabase]);
+
 
   useEffect(() => { fetchGoals(); }, [fetchGoals]);
 
@@ -108,12 +120,29 @@ export function Savings() {
     if (!fundForm.amount || isNaN(fundForm.amount)) return;
     const goal = goals.find(g => g.id === addFundsGoal);
     if (!goal) return;
-    const newAmount = Math.min(Number(goal.current_amount) + Number(fundForm.amount), Number(goal.target_amount));
-    await supabase.from("savings_goals").update({ current_amount: newAmount }).eq("id", addFundsGoal);
+
+    const depositAmount = Number(fundForm.amount);
+    const newAmount = Math.min(Number(goal.current_amount) + depositAmount, Number(goal.target_amount));
+    
+    // 1. Update the goal total
+    const updateGoal = supabase.from("savings_goals").update({ current_amount: newAmount }).eq("id", addFundsGoal);
+    
+    // 2. Insert transaction record
+    const insertTrans = supabase.from("savings_transactions").insert([{
+      goal_id: addFundsGoal,
+      amount: depositAmount,
+      date: formatLocalDate(),
+      type: 'deposit',
+      notes: `Deposit to ${goal.name}`
+    }]);
+
+    await Promise.all([updateGoal, insertTrans]);
+
     setAddFundsGoal(null);
     setFundForm(INITIAL_FUND_FORM);
     fetchGoals();
   };
+
 
   const handleCancel = () => { setForm(INITIAL_FORM); setEditingId(null); setShowForm(false); };
 
@@ -313,6 +342,23 @@ export function Savings() {
                       {" • "}{monthLabel(goal.start_month)} for {goal.duration_months} months
                     </div>
                   )}
+
+                  {/* Recent Activity */}
+                  <div className="pt-1">
+                    <p className="text-[10px] font-bold uppercase text-muted-foreground mb-1.5 px-1">Recent Activity</p>
+                    <div className="space-y-1.5 min-h-[40px]">
+                      {transactions.filter(t => t.goal_id === goal.id).slice(0, 2).map(t => (
+                        <div key={t.id} className="flex justify-between items-center text-[11px] bg-muted/30 hover:bg-muted/50 rounded px-2 py-1 transition-colors">
+                          <span className="text-muted-foreground font-medium">{t.date}</span>
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400">+৳{Number(t.amount).toLocaleString()}</span>
+                        </div>
+                      ))}
+                      {transactions.filter(t => t.goal_id === goal.id).length === 0 && (
+                        <p className="text-[10px] text-muted-foreground italic px-2 py-1">No deposits recorded yet.</p>
+                      )}
+                    </div>
+                  </div>
+
 
                   {/* Actions */}
                   {addFundsGoal === goal.id ? (

@@ -192,8 +192,4 @@ CREATE TABLE IF NOT EXISTS public.recurring_payments (
 ALTER TABLE public.recurring_payments ENABLE ROW LEVEL SECURITY;
 
 -- Polices: Users can manage their own payments
-CREATE POLICY "Users can manage their own recurring payments" 
-  ON public.recurring_payments FOR ALL 
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
 
