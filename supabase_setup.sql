@@ -212,3 +212,27 @@ CREATE POLICY "Users can manage their own recurring payments"
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+
+-- Table for tracking manual DPS payments
+CREATE TABLE IF NOT EXISTS public.dps_payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  savings_goal_id UUID REFERENCES public.savings_goals(id) ON DELETE CASCADE,
+  due_date DATE NOT NULL,
+  paid_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  amount NUMERIC NOT NULL,
+  user_id UUID REFERENCES auth.users(id) DEFAULT auth.uid() NOT NULL,
+  UNIQUE(savings_goal_id, due_date)
+);
+
+ALTER TABLE public.dps_payments ENABLE ROW LEVEL SECURITY;
+
+-- Policies: Users can manage their own dps payments
+DO $$ BEGIN
+  DROP POLICY IF EXISTS "Users can manage their own dps payments" ON public.dps_payments;
+END $$;
+
+CREATE POLICY "Users can manage their own dps payments" 
+  ON public.dps_payments FOR ALL 
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+

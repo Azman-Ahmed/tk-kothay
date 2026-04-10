@@ -6,6 +6,15 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend
 } from "recharts";
 import { getSupabaseBrowserClient } from "../lib/supabase/browser-client";
+import { generateDPSSchedule, formatLocalDate } from "../lib/utils";
+
+import { ArrowUpRight, ArrowDownRight, Wallet, Activity, RefreshCw } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card";
+import {
+  PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend
+} from "recharts";
+import { getSupabaseBrowserClient } from "../lib/supabase/browser-client";
 
 const COLORS = ["#0ea5e9", "#f43f5e", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899"];
 
@@ -38,7 +47,7 @@ export function Dashboard() {
   const [barData, setBarData] = useState([]);
   const [pieData, setPieData] = useState([]);
   const [activeSavingName, setActiveSavingName] = useState("—");
-  const [loanReminders, setLoanReminders] = useState([]);
+  const [paymentReminders, setPaymentReminders] = useState([]);
 
   const supabase = getSupabaseBrowserClient();
 
@@ -63,6 +72,7 @@ export function Dashboard() {
       { data: lastMonthExpenses },
       { data: allLoans },
       { data: allRecurring },
+      { data: allDpsPayments },
     ] = await Promise.all([
       supabase.from("incomes").select("amount,date").gte("date", thisMonthStart).lte("date", thisMonthEnd),
       supabase.from("expenses").select("amount,category,date").gte("date", thisMonthStart).lte("date", thisMonthEnd),
@@ -72,6 +82,7 @@ export function Dashboard() {
       supabase.from("expenses").select("amount").gte("date", lastMonthStart).lte("date", lastMonthEnd),
       supabase.from("loans").select("*").eq("type", "taken").gt("remaining_amount", 0).not("due_date", "is", null),
       supabase.from("recurring_expenses").select("*"),
+      supabase.from("dps_payments").select("*"),
     ]);
 
     const activeMonth = `${year}-${String(month + 1).padStart(2, "0")}`;
@@ -109,23 +120,14 @@ export function Dashboard() {
 
 
 
-    // Active DPS Savings
-    const activeDps = (allSavings || []).filter(g => {
-      if (!g.is_recurring || !g.start_month || !g.duration_months) return false;
-      const [sy, sm] = g.start_month.split("-").map(Number);
-      const start = new Date(sy, sm - 1, 1);
-      const current = new Date(year, month, 1);
-      const end = new Date(sy, sm - 1 + g.duration_months - 1, 1);
-      return current >= start && current <= end;
-    });
-    const totalDps = activeDps.reduce((s, g) => {
-      const base = Number(g.monthly_amount || 0);
-      if (g.frequency === "weekly") {
-         return s + (base * countOccurrences(activeMonth, 1)); // Defaulting to Monday (1) for legacy DPS
+    // Actual Paid DPS Savings
+    const totalDps = (allDpsPayments || []).reduce((s, p) => {
+      const paidDate = new Date(p.paid_at);
+      if (paidDate.getFullYear() === year && paidDate.getMonth() === month) {
+         return s + Number(p.amount);
       }
-      return s + base;
+      return s;
     }, 0);
-
 
     const totalAllExpenses = totalOneTime + totalDaily + totalRecurring + totalDps;
     const totalSavings = (allSavings || []).reduce((s, g) => s + Number(g.current_amount), 0);
@@ -149,15 +151,49 @@ export function Dashboard() {
     if (totalDps > 0) categoryMap["DPS Savings"] = (categoryMap["DPS Savings"] || 0) + totalDps;
     setPieData(Object.entries(categoryMap).map(([name, value]) => ({ name, value })));
 
-    // Loan Reminders
-    const upcomingLoans = (allLoans || [])
-      .filter(l => {
-        const due = new Date(l.due_date);
-        const diffDays = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
-        return diffDays <= 7 && diffDays >= -1; // Due in 7 days or yesterday
-      })
-      .sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
-    setLoanReminders(upcomingLoans);
+    // Compute Reminders (Loans + DPS)
+    const combinedReminders = [];
+
+    (allLoans || []).forEach(l => {
+      const due = new Date(l.due_date);
+      const diffDays = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
+      if (diffDays <= 7 && diffDays >= -1) {
+         combinedReminders.push({
+            id: `loan_${l.id}`,
+            title: l.partner_name,
+            amount: l.remaining_amount,
+            due_date: l.due_date,
+            type: "loan",
+            diffDays
+         });
+      }
+    });
+
+    (allSavings || []).forEach(goal => {
+      if (!goal.is_recurring) return;
+      const goalPayments = (allDpsPayments || []).filter(p => p.savings_goal_id === goal.id);
+      const schedule = generateDPSSchedule(goal, goalPayments);
+      
+      schedule.forEach(inst => {
+        if (inst.status !== "paid") {
+           const due = new Date(inst.due_date);
+           const diffDays = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
+           if (diffDays <= 7) {
+              combinedReminders.push({
+                 id: `dps_${goal.id}_${inst.due_date}`,
+                 title: `${goal.name} (${inst.status === 'missed' ? 'Missed Installment' : 'Installment'})`,
+                 amount: inst.amount,
+                 due_date: inst.due_date,
+                 type: "dps",
+                 diffDays
+              });
+           }
+        }
+      });
+    });
+
+    combinedReminders.sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
+    setPaymentReminders(combinedReminders);
 
     // Bar chart: last 6 months income vs expense
     const months = [];
@@ -207,17 +243,13 @@ export function Dashboard() {
         }, 0);
 
 
-      // Add DPS for trend
-      const monthlyDps = (allSavings || []).filter(g => {
-        if (!g.is_recurring || !g.start_month || !g.duration_months) return false;
-        const [sy, sm] = g.start_month.split("-").map(Number);
-        const start = new Date(sy, sm - 1, 1);
-        const current = new Date(m.year, m.month, 1);
-        const end = new Date(sy, sm - 1 + g.duration_months - 1, 1);
-        return current >= start && current <= end;
-      }).reduce((s, g) => {
-        const base = Number(g.monthly_amount || 0);
-        return s + (g.frequency === "weekly" ? base * countOccurrences(key, 1) : base);
+      // Add DPS actual payments for trend
+      const monthlyDps = (allDpsPayments || []).reduce((s, p) => {
+        const pd = new Date(p.paid_at);
+        if (pd.getFullYear() === m.year && pd.getMonth() === m.month) {
+          return s + Number(p.amount);
+        }
+        return s;
       }, 0);
 
       return {
@@ -361,28 +393,26 @@ export function Dashboard() {
         </Card>
       </div>
 
-      {/* Loan Reminders Section */}
-      {loanReminders.length > 0 && (
+      {/* Payment Reminders Section */}
+      {paymentReminders.length > 0 && (
         <Card className="border-rose-200 bg-rose-50/20 dark:bg-rose-950/10">
           <CardHeader className="pb-2 flex flex-row items-center gap-2">
             <div className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
             <CardTitle className="text-base text-rose-700 dark:text-rose-400">Payment Reminders</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 pt-2">
-            {loanReminders.map(loan => {
-               const due = new Date(loan.due_date);
-               const diffDays = Math.ceil((due - new Date()) / (1000 * 60 * 60 * 24));
+            {paymentReminders.map(rem => {
                return (
-                 <div key={loan.id} className="flex justify-between items-center p-3 rounded-lg border border-rose-100 dark:border-rose-900 bg-card shadow-sm">
+                 <div key={rem.id} className="flex justify-between items-center p-3 rounded-lg border border-rose-100 dark:border-rose-900 bg-card shadow-sm">
                    <div>
-                     <p className="font-bold text-sm">{loan.partner_name}</p>
-                     <p className={`text-[10px] uppercase font-bold ${diffDays <= 1 ? "text-rose-600" : "text-amber-600"}`}>
-                       {diffDays === 0 ? "Due Today" : diffDays === 1 ? "Due Tomorrow" : diffDays < 0 ? "Overdue!" : `Due in ${diffDays} days`}
+                     <p className="font-bold text-sm">{rem.title}</p>
+                     <p className={`text-[10px] uppercase font-bold ${rem.diffDays <= 1 ? "text-rose-600" : "text-amber-600"}`}>
+                       {rem.diffDays === 0 ? "Due Today" : rem.diffDays === 1 ? "Due Tomorrow" : rem.diffDays < 0 ? "Overdue!" : `Due in ${rem.diffDays} days`}
                      </p>
                    </div>
                    <div className="text-right">
-                     <p className="font-extrabold text-rose-600">৳{Number(loan.remaining_amount).toLocaleString()}</p>
-                     <p className="text-[10px] text-muted-foreground">{loan.due_date}</p>
+                     <p className="font-extrabold text-rose-600">৳{Number(rem.amount).toLocaleString()}</p>
+                     <p className="text-[10px] text-muted-foreground">{rem.due_date}</p>
                    </div>
                  </div>
                );

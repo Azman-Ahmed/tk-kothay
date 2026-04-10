@@ -43,4 +43,73 @@ export function exportToCSV(data, filename = "export") {
   document.body.removeChild(link);
 }
 
+/**
+ * Dynamically computes the expected DPS installments
+ * and matches them against actual payments.
+ */
+export function generateDPSSchedule(goal, payments = []) {
+  if (!goal.is_recurring || !goal.start_date || !goal.duration_months) return [];
+
+  const installments = [];
+  const start = new Date(goal.start_date);
+  const amount = Number(goal.monthly_amount || 0);
+  const frequency = goal.frequency || "monthly";
+  const duration = parseInt(goal.duration_months);
+
+  const paymentsMap = {};
+  payments.forEach(p => {
+    if(p.due_date) paymentsMap[p.due_date] = p;
+  });
+
+  const todayStr = formatLocalDate(new Date());
+
+  if (frequency === "monthly") {
+    for (let i = 0; i < duration; i++) {
+      const d = new Date(start.getFullYear(), start.getMonth() + i, start.getDate());
+      const dateStr = formatLocalDate(d);
+      
+      const p = paymentsMap[dateStr];
+      const isPaid = !!p;
+      let status = "pending";
+      if (isPaid) status = "paid";
+      else if (dateStr < todayStr) status = "missed";
+      
+      installments.push({
+        due_date: dateStr,
+        amount: amount,
+        status,
+        paid_at: p?.paid_at || null,
+        id: p?.id || null, // payment id if exists
+      });
+    }
+  } else if (frequency === "weekly") {
+     const mature = goal.mature_date ? new Date(goal.mature_date) : new Date(start.getFullYear(), start.getMonth() + duration, start.getDate());
+     const matureStr = formatLocalDate(mature);
+     
+     let currentD = new Date(start);
+     let dStr = formatLocalDate(currentD);
+     while (dStr <= matureStr) {
+        const p = paymentsMap[dStr];
+        const isPaid = !!p;
+        let status = "pending";
+        if (isPaid) status = "paid";
+        else if (dStr < todayStr) status = "missed";
+        
+        installments.push({
+          due_date: dStr,
+          amount: amount,
+          status,
+          paid_at: p?.paid_at || null,
+          id: p?.id || null,
+        });
+
+        currentD.setDate(currentD.getDate() + 7);
+        // Avoid timezone drift side effects by using local hours
+        currentD.setHours(12, 0, 0, 0); 
+        dStr = formatLocalDate(currentD);
+     }
+  }
+
+  return installments;
+}
 
