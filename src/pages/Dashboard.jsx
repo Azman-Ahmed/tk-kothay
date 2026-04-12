@@ -8,13 +8,6 @@ import {
 import { getSupabaseBrowserClient } from "../lib/supabase/browser-client";
 import { generateDPSSchedule, formatLocalDate } from "../lib/utils";
 
-import { ArrowUpRight, ArrowDownRight, Wallet, Activity, RefreshCw } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card";
-import {
-  PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend
-} from "recharts";
-import { getSupabaseBrowserClient } from "../lib/supabase/browser-client";
 
 const COLORS = ["#0ea5e9", "#f43f5e", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899"];
 
