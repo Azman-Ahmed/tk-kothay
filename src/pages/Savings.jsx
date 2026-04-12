@@ -32,6 +32,7 @@ const INITIAL_FORM = {
   start_date: formatLocalDate(), 
   mature_date: formatLocalDate(new Date(new Date().setFullYear(new Date().getFullYear() + 1))), 
   duration_months: "12",
+  cleared_till_date: "",
 };
 
 const INITIAL_FUND_FORM = { amount: "" };
@@ -46,6 +47,7 @@ export function Savings() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [addFundsGoal, setAddFundsGoal] = useState(null);
   const [scheduleViewGoal, setScheduleViewGoal] = useState(null);
+  const [payingId, setPayingId] = useState(null);
   const [fundForm, setFundForm] = useState(INITIAL_FUND_FORM);
   const [activeTab, setActiveTab] = useState("all"); // "all" | "regular" | "dps"
   const [dpsPayments, setDpsPayments] = useState([]);
@@ -88,7 +90,19 @@ export function Savings() {
     if (editingId) {
       await supabase.from("savings_goals").update(payload).eq("id", editingId);
     } else {
-      await supabase.from("savings_goals").insert([payload]);
+      const { data: newGoalData, error } = await supabase.from("savings_goals").insert([payload]).select();
+      if (!error && newGoalData?.[0] && payload.is_recurring && form.cleared_till_date) {
+        const newGoal = newGoalData[0];
+        const scheduleToClear = generateDPSSchedule(newGoal, []).filter(inst => inst.due_date <= form.cleared_till_date);
+        const inserts = scheduleToClear.map(inst => ({
+           savings_goal_id: newGoal.id,
+           due_date: inst.due_date,
+           amount: inst.amount
+        }));
+        if (inserts.length > 0) {
+           await supabase.from("dps_payments").insert(inserts);
+        }
+      }
     }
     setForm(INITIAL_FORM);
     setEditingId(null);
@@ -110,6 +124,7 @@ export function Savings() {
       start_date: goal.start_date || (goal.start_month ? goal.start_month + "-01" : formatLocalDate()),
       mature_date: goal.mature_date || formatLocalDate(),
       duration_months: String(goal.duration_months || ""),
+      cleared_till_date: "",
     });
 
     setShowForm(true);
@@ -136,6 +151,7 @@ export function Savings() {
 
   const handlePayInstallment = async (goal, installment) => {
     setSaving(true);
+    setPayingId(installment.due_date);
     await supabase.from("dps_payments").insert([{
        savings_goal_id: goal.id,
        due_date: installment.due_date,
@@ -147,7 +163,8 @@ export function Savings() {
     await supabase.from("savings_goals").update({ current_amount: newAmount }).eq("id", goal.id);
     
     setSaving(false);
-    fetchGoals();
+    await fetchGoals();
+    setPayingId(null);
   };
 
   const handleCancel = () => { setForm(INITIAL_FORM); setEditingId(null); setShowForm(false); };
@@ -273,6 +290,14 @@ export function Savings() {
                     <Input type="date" value={form.mature_date} 
                       onChange={e => setForm({ ...form, mature_date: e.target.value })} />
                   </div>
+                  {!editingId && (
+                    <div className="space-y-1.5 sm:col-span-2 lg:col-span-4 mt-2">
+                       <label className="text-sm font-medium text-blue-600 dark:text-blue-400">Past Installments Cleared Till (Optional)</label>
+                       <div className="text-xs text-muted-foreground mb-1">If you already paid past installments, select the date up to which you cleared them. We will mark them as paid automatically.</div>
+                       <Input type="date" value={form.cleared_till_date} 
+                         onChange={e => setForm({ ...form, cleared_till_date: e.target.value })} />
+                    </div>
+                  )}
                 </>
               )}
 
@@ -355,11 +380,11 @@ export function Savings() {
                          <div key={inst.due_date} className="flex items-center justify-between py-1.5 border-b border-border/50 last:border-0 text-xs">
                            <span className={inst.status === 'missed' ? 'text-rose-600 dark:text-rose-400 font-semibold' : ''}>{inst.due_date}</span>
                            <span>৳{inst.amount}</span>
-                           {inst.status === "paid" ? (
+                           {inst.status === "paid" || payingId === inst.due_date ? (
                               <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-medium"><CheckCircle2 className="h-3.5 w-3.5"/> Paid</span>
                            ) : (
                               <Button size="sm" variant={inst.status === 'missed' ? 'destructive' : 'outline'} className="h-6 px-2.5 text-[10px]" 
-                                onClick={() => handlePayInstallment(goal, inst)} disabled={saving}>Pay</Button>
+                                onClick={() => handlePayInstallment(goal, inst)} disabled={saving}>{payingId === inst.due_date ? "..." : "Pay"}</Button>
                            )}
                          </div>
                       ))}
