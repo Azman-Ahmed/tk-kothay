@@ -99,7 +99,8 @@ export function Savings() {
         const inserts = scheduleToClear.map(inst => ({
            savings_goal_id: newGoal.id,
            due_date: inst.due_date,
-           amount: inst.amount
+           amount: inst.amount,
+           paid_at: `${inst.due_date}T12:00:00Z`
         }));
         if (inserts.length > 0) {
            const { error: insertError } = await supabase.from("dps_payments").insert(inserts);
