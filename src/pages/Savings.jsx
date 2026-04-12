@@ -56,12 +56,14 @@ export function Savings() {
 
   const fetchGoals = useCallback(async () => {
     setLoading(true);
-    const [{ data: goalsData, error }, { data: paymentsData }] = await Promise.all([
+    const [{ data: goalsData, error }, { data: paymentsData, error: paymentsError }] = await Promise.all([
       supabase.from("savings_goals").select("*").order("created_at", { ascending: true }),
       supabase.from("dps_payments").select("*")
     ]);
     if (error) console.error(error);
-    else {
+    if (paymentsError) {
+       console.error("DPS Payments Fetch Error:", paymentsError);
+    } else {
       setGoals(goalsData || []);
       setDpsPayments(paymentsData || []);
     }
@@ -100,7 +102,8 @@ export function Savings() {
            amount: inst.amount
         }));
         if (inserts.length > 0) {
-           await supabase.from("dps_payments").insert(inserts);
+           const { error: insertError } = await supabase.from("dps_payments").insert(inserts);
+           if (insertError) console.error("Error inserting past installments:", insertError);
         }
       }
     }
@@ -152,11 +155,19 @@ export function Savings() {
   const handlePayInstallment = async (goal, installment) => {
     setSaving(true);
     setPayingId(installment.due_date);
-    await supabase.from("dps_payments").insert([{
+    const { error } = await supabase.from("dps_payments").insert([{
        savings_goal_id: goal.id,
        due_date: installment.due_date,
        amount: installment.amount
     }]);
+    
+    if (error) {
+       console.error("Payment Error:", error);
+       alert("Could not process payment. Did you update the database schema?");
+       setSaving(false);
+       setPayingId(null);
+       return;
+    }
     
     // Also update current_amount of the goal
     const newAmount = Number(goal.current_amount) + Number(installment.amount);
