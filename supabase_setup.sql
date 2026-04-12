@@ -236,3 +236,57 @@ CREATE POLICY "Users can manage their own dps payments"
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+-- =========================================================
+-- CREDIT & DEBIT FEATURES / LOAN PAYMENTS UPGRADES
+-- =========================================================
+
+-- 1. Add payment_method to existing tables
+DO $$ BEGIN
+  ALTER TABLE public.expenses ADD COLUMN payment_method TEXT DEFAULT 'debit';
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE public.daily_spends ADD COLUMN payment_method TEXT DEFAULT 'debit';
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE public.dps_payments ADD COLUMN payment_method TEXT DEFAULT 'debit';
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+-- 2. Credit Bill Payments tracking
+CREATE TABLE IF NOT EXISTS public.credit_bill_payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) DEFAULT auth.uid() NOT NULL,
+  bill_month TEXT NOT NULL, -- Format: YYYY-MM
+  amount NUMERIC NOT NULL,
+  paid_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(user_id, bill_month)
+);
+
+ALTER TABLE public.credit_bill_payments ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN DROP POLICY IF EXISTS "Users manage own credit bill payments" ON public.credit_bill_payments; END $$;
+CREATE POLICY "Users manage own credit bill payments" 
+  ON public.credit_bill_payments FOR ALL 
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- 3. Loan Payments tracking (to correctly deduct/add to balance and handle Debit/Credit)
+CREATE TABLE IF NOT EXISTS public.loan_payments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    loan_id UUID REFERENCES public.loans(id) ON DELETE CASCADE,
+    amount NUMERIC NOT NULL,
+    payment_method TEXT DEFAULT 'debit',
+    paid_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    user_id UUID REFERENCES auth.users(id) DEFAULT auth.uid() NOT NULL
+);
+
+ALTER TABLE public.loan_payments ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN DROP POLICY IF EXISTS "Users manage own loan payments" ON public.loan_payments; END $$;
+CREATE POLICY "Users manage own loan payments" 
+  ON public.loan_payments FOR ALL 
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+

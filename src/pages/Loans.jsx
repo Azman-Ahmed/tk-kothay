@@ -27,6 +27,7 @@ export function Loans() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [activeTab, setActiveTab] = useState("taken"); // 'taken' | 'given'
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("debit");
   const [payingLoanId, setPayingLoanId] = useState(null);
 
   const supabase = getSupabaseBrowserClient();
@@ -95,8 +96,23 @@ export function Loans() {
   const handleAddPayment = async (loan) => {
     if (!paymentAmount || isNaN(paymentAmount)) return;
     
-    const newRemaining = Math.max(0, Number(loan.remaining_amount) - Number(paymentAmount));
+    const amount = Number(paymentAmount);
+    const newRemaining = Math.max(0, Number(loan.remaining_amount) - amount);
     
+    // 1. Insert into history
+    const { error: payError } = await supabase.from("loan_payments").insert([{
+      loan_id: loan.id,
+      amount: amount,
+      payment_method: paymentMethod,
+      paid_at: new Date().toISOString()
+    }]);
+
+    if (payError) {
+      console.error("Error logging payment:", payError);
+      return;
+    }
+
+    // 2. Update loan remaining amount
     const { error } = await supabase
       .from("loans")
       .update({ remaining_amount: newRemaining })
@@ -105,6 +121,7 @@ export function Loans() {
     if (!error) {
       setPayingLoanId(null);
       setPaymentAmount("");
+      setPaymentMethod("debit");
       fetchLoans();
     }
   };
@@ -271,15 +288,27 @@ export function Loans() {
 
                     <div className="flex flex-col gap-2 justify-center border-t md:border-t-0 md:border-l pt-4 md:pt-0 md:pl-4 min-w-[150px]">
                       {payingLoanId === loan.id ? (
-                        <div className="space-y-2">
+                        <div className="space-y-2 bg-muted/30 p-2 rounded-lg border border-border/50">
                           <Input type="number" placeholder="Payment amt" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="h-8 text-sm" />
+                          
                           <div className="flex gap-1">
-                            <Button size="sm" className="flex-1" onClick={() => handleAddPayment(loan)}>Pay</Button>
-                            <Button size="sm" variant="outline" onClick={() => setPayingLoanId(null)}><X className="h-4 w-4" /></Button>
+                            <button 
+                              onClick={() => setPaymentMethod('debit')} 
+                              className={`flex-1 text-[10px] font-bold py-1 rounded border transition-colors ${paymentMethod === 'debit' ? 'bg-primary text-primary-foreground border-primary' : 'bg-transparent text-muted-foreground border-border'}`}
+                            >DEBIT</button>
+                            <button 
+                              onClick={() => setPaymentMethod('credit')} 
+                              className={`flex-1 text-[10px] font-bold py-1 rounded border transition-colors ${paymentMethod === 'credit' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-transparent text-muted-foreground border-border'}`}
+                            >CREDIT</button>
+                          </div>
+
+                          <div className="flex gap-1">
+                            <Button size="sm" className="flex-1 h-8 text-xs font-bold" onClick={() => handleAddPayment(loan)}>PAY NOW</Button>
+                            <Button size="sm" variant="outline" className="h-8 px-2" onClick={() => {setPayingLoanId(null); setPaymentMethod('debit');}}><X className="h-4 w-4" /></Button>
                           </div>
                         </div>
                       ) : (
-                        <Button size="sm" disabled={isFullyPaid} onClick={() => setPayingLoanId(loan.id)}>
+                        <Button size="sm" disabled={isFullyPaid} onClick={() => setPayingLoanId(loan.id)} className="h-9 font-bold">
                           Add Payment
                         </Button>
                       )}

@@ -35,7 +35,7 @@ const INITIAL_FORM = {
   category: "Shopping",
   amount: "",
   date: formatLocalDate(),
-
+  payment_method: "debit",
   notes: "",
 };
 
@@ -81,11 +81,11 @@ export function OneTimePayments() {
     setSaving(true);
     if (editingId) {
       await supabase.from("expenses").update({
-        category: form.category, amount: Number(form.amount), date: form.date, notes: form.notes,
+        category: form.category, amount: Number(form.amount), date: form.date, payment_method: form.payment_method, notes: form.notes,
       }).eq("id", editingId);
     } else {
       await supabase.from("expenses").insert([{
-        category: form.category, amount: Number(form.amount), date: form.date, notes: form.notes,
+        category: form.category, amount: Number(form.amount), date: form.date, payment_method: form.payment_method, notes: form.notes,
       }]);
     }
     setForm(INITIAL_FORM);
@@ -96,7 +96,7 @@ export function OneTimePayments() {
 
   const handleEdit = (p) => {
     setEditingId(p.id);
-    setForm({ category: p.category, amount: String(p.amount), date: p.date, notes: p.notes || "" });
+    setForm({ category: p.category, amount: String(p.amount), date: p.date, payment_method: p.payment_method || "debit", notes: p.notes || "" });
   };
 
   const handleDelete = async (id) => {
@@ -163,6 +163,13 @@ export function OneTimePayments() {
                 <Input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
               </div>
               <div className="space-y-1.5">
+                <label className="text-sm font-medium">Payment Method</label>
+                <div className="flex gap-2">
+                  <button onClick={() => setForm({ ...form, payment_method: 'debit' })} className={`flex-1 py-1.5 text-sm font-semibold rounded-md border transition-colors ${form.payment_method === 'debit' ? 'bg-primary text-primary-foreground border-primary' : 'bg-transparent border-border text-muted-foreground'}`}>Debit (Current Bal)</button>
+                  <button onClick={() => setForm({ ...form, payment_method: 'credit' })} className={`flex-1 py-1.5 text-sm font-semibold rounded-md border transition-colors ${form.payment_method === 'credit' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-transparent border-border text-muted-foreground'}`}>Credit Card</button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
                 <label className="text-sm font-medium">Notes (Optional)</label>
                 <Input placeholder="e.g. New phone case" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
               </div>
@@ -221,11 +228,14 @@ export function OneTimePayments() {
                           </div>
                           <div>
                             <p className="font-medium text-sm">{p.category}</p>
-                            <p className="text-xs text-muted-foreground">{p.date}{p.notes ? ` • ${p.notes}` : ""}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {p.date} • <span className={`font-semibold ${p.payment_method === 'credit' ? 'text-indigo-500' : 'text-emerald-600'}`}>{p.payment_method === 'credit' ? 'Credit' : 'Debit'}</span>
+                              {p.notes ? ` • ${p.notes}` : ""}
+                            </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm text-pink-600 dark:text-pink-400">- ৳{Number(p.amount).toLocaleString()}</span>
+                          <span className={`font-bold text-sm ${p.payment_method === 'credit' ? 'text-indigo-600 dark:text-indigo-400' : 'text-pink-600 dark:text-pink-400'}`}>- ৳{Number(p.amount).toLocaleString()}</span>
                           <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-blue-500" onClick={() => handleEdit(p)}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>

@@ -89,6 +89,9 @@ export function Expenses() {
   const [paidRecIds, setPaidRecIds] = useState(new Set());
   const [showPaid, setShowPaid] = useState(false);
 
+  // Credit Bill
+  const [creditBill, setCreditBill] = useState({ total: 0, isPaid: false });
+
 
   // DPS contributions from savings
   const [dpsSavings, setDpsSavings] = useState([]);
@@ -135,11 +138,56 @@ export function Expenses() {
     setLoadingDps(false);
   }, []);
 
+  const fetchCreditBill = useCallback(async () => {
+    // Get month before selectedMonth
+    const [y, m] = selectedMonth.split("-").map(Number);
+    const lm = new Date(y, m - 2, 1); // m-2 because Date month is 0-indexed and we want month before
+    const lmY = lm.getFullYear();
+    const lmM = lm.getMonth();
+    const lastMonthKey = `${lmY}-${String(lmM + 1).padStart(2, "0")}`;
+    const lmStart = `${lastMonthKey}-01`;
+    const lmEnd = new Date(lmY, lmM + 1, 0).toISOString().split('T')[0];
+
+    const [
+      { data: lmExp },
+      { data: lmDaily },
+      { data: lmDps },
+      { data: lmLoanPay },
+      { data: billsPaid }
+    ] = await Promise.all([
+      supabase.from("expenses").select("amount,payment_method").gte("date", lmStart).lte("date", lmEnd).eq("payment_method", 'credit'),
+      supabase.from("daily_spends").select("amount,payment_method").gte("date", lmStart).lte("date", lmEnd).eq("payment_method", 'credit'),
+      supabase.from("dps_payments").select("amount,paid_at,payment_method").eq("payment_method", 'credit'), // Filter below
+      supabase.from("loan_payments").select("amount,paid_at,payment_method").eq("payment_method", 'credit'), // Filter below
+      supabase.from("credit_bill_payments").select("*").eq("bill_month", lastMonthKey)
+    ]);
+
+    const totalExp = (lmExp || []).reduce((s, e) => s + Number(e.amount), 0);
+    const totalDaily = (lmDaily || []).reduce((s, e) => s + Number(e.amount), 0);
+    
+    // Filter payments actually swiped last month
+    const totalDps = (lmDps || []).filter(p => {
+      const d = new Date(p.paid_at);
+      return d.getFullYear() === lmY && d.getMonth() === lmM;
+    }).reduce((s, e) => s + Number(e.amount), 0);
+
+    const totalLoans = (lmLoanPay || []).filter(p => {
+      const d = new Date(p.paid_at);
+      return d.getFullYear() === lmY && d.getMonth() === lmM;
+    }).reduce((s, e) => s + Number(e.amount), 0);
+
+    setCreditBill({
+      total: totalExp + totalDaily + totalDps + totalLoans,
+      isPaid: (billsPaid || []).length > 0
+    });
+  }, [selectedMonth, supabase]);
+
   useEffect(() => { 
     fetchRecurring(); 
     fetchDpsSavings(); 
     fetchPaidPayments();
-  }, [fetchRecurring, fetchDpsSavings, fetchPaidPayments]);
+    fetchCreditBill();
+  }, [fetchRecurring, fetchDpsSavings, fetchPaidPayments, fetchCreditBill]);
 
 
   // Filter EMI entries active this month
@@ -231,6 +279,23 @@ export function Expenses() {
   };
 
   const handleTogglePaid = async (recId, currentlyPaid) => {
+    // Check if it's the credit bill
+    if (recId === 'credit_bill_VIRTUAL') {
+      if (currentlyPaid) return; // Cannot "unpay" a credit bill from here easily
+      
+      const [y, m] = selectedMonth.split("-").map(Number);
+      const lm = new Date(y, m - 2, 1);
+      const lastMonthKey = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, "0")}`;
+      
+      const { error } = await supabase.from("credit_bill_payments").insert([{
+        bill_month: lastMonthKey,
+        amount: creditBill.total
+      }]);
+      
+      if (!error) fetchCreditBill();
+      return;
+    }
+
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
@@ -258,7 +323,8 @@ export function Expenses() {
     return s + base;
   }, 0);
   const dpsTotal = activeDps.reduce((s, g) => s + dpsMonthlyAmount(g, selectedMonth), 0);
-  const grandTotal = emiTotal + dpsTotal;
+  const creditTotalToAdd = (!creditBill.isPaid && creditBill.total > 0) ? creditBill.total : 0;
+  const grandTotal = emiTotal + dpsTotal + creditTotalToAdd;
 
   const selectClass = "flex h-10 w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500";
 
@@ -398,18 +464,18 @@ export function Expenses() {
                 {showPaid ? "Showing Paid" : "Hide Paid"}
               </button>
             </div>
-            <span className="text-sm text-muted-foreground">{activeEmi.length} active in {monthLabel(selectedMonth)}</span>
+            <span className="text-sm text-muted-foreground">{(activeEmi.length + (creditBill.total > 0 ? 1 : 0))} active in {monthLabel(selectedMonth)}</span>
           </div>
 
 
           {/* Active this month */}
           {loadingRec ? (
             <p className="text-muted-foreground text-center py-6">Loading...</p>
-          ) : activeEmi.length === 0 ? (
+          ) : (activeEmi.length === 0 && creditBill.total === 0) ? (
             <Card className="border-dashed">
               <CardContent className="py-10 text-center">
                 <RepeatIcon className="h-10 w-10 text-muted-foreground/20 mx-auto mb-3" />
-                <p className="text-muted-foreground text-sm">No recurring expenses for {monthLabel(selectedMonth)}.</p>
+                <p className="text-muted-foreground text-sm">No recurring expenses or credit bills for {monthLabel(selectedMonth)}.</p>
                 <Button variant="outline" size="sm" className="mt-3" onClick={() => setShowRecForm(true)}>
                   <Plus className="h-3.5 w-3.5 mr-1" /> Add one
                 </Button>
@@ -417,6 +483,43 @@ export function Expenses() {
             </Card>
           ) : (
             <div className="space-y-3">
+              {/* Virtual Credit Bill Item */}
+              {creditBill.total > 0 && (showPaid || !creditBill.isPaid) && (
+                <div className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
+                  creditBill.isPaid 
+                    ? "border-emerald-100 dark:border-emerald-900/30 bg-emerald-50/30 dark:bg-emerald-950/10 opacity-75" 
+                    : "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/30 shadow-sm"
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${creditBill.isPaid ? "bg-emerald-100 text-emerald-600" : "bg-indigo-600 text-white"}`}>
+                      <ShoppingCart className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className={`font-bold text-sm ${creditBill.isPaid ? "line-through text-muted-foreground" : ""}`}>Credit Card Bill ({MONTHS[new Date(selectedMonth.split("-")[0], selectedMonth.split("-")[1] - 2).getMonth()]})</p>
+                        {creditBill.isPaid && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold uppercase">Settled</span>}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Aggregated from previous month's credit swipes</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-right">
+                    <span className={`font-extrabold text-sm block ${creditBill.isPaid ? "text-muted-foreground line-through" : "text-indigo-600 dark:text-indigo-400"}`}>
+                      - ৳{creditBill.total.toLocaleString()}
+                    </span>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className={`h-8 px-2 gap-1.5 ${creditBill.isPaid ? "text-emerald-600" : "text-indigo-600 hover:text-indigo-700"}`}
+                      onClick={() => handleTogglePaid('credit_bill_VIRTUAL', creditBill.isPaid)}
+                      disabled={creditBill.isPaid}
+                    >
+                      <CheckCircle className={`h-4 w-4 ${creditBill.isPaid ? "fill-emerald-100" : ""}`} />
+                      <span className="text-xs font-bold">{creditBill.isPaid ? "Settled" : "Settle Bill"}</span>
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {activeEmi
                 .filter(rec => showPaid || !paidRecIds.has(rec.id))
                 .map(rec => {

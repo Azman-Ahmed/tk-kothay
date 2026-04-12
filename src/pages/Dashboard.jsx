@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { ArrowUpRight, ArrowDownRight, Wallet, Activity, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card";
+import { Button } from "../components/ui/Button";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend
@@ -41,6 +42,9 @@ export function Dashboard() {
   const [pieData, setPieData] = useState([]);
   const [activeSavingName, setActiveSavingName] = useState("—");
   const [paymentReminders, setPaymentReminders] = useState([]);
+  const [payingBill, setPayingBill] = useState(null);
+  const [quickAdd, setQuickAdd] = useState({ amount: "", note: "", payment_method: "debit" });
+  const [addingQuick, setAddingQuick] = useState(false);
 
   const supabase = getSupabaseBrowserClient();
 
@@ -66,37 +70,53 @@ export function Dashboard() {
       { data: allLoans },
       { data: allRecurring },
       { data: allDpsPayments },
+      { data: creditBillPayments },
+      { data: loanPayments },
+      { data: allDailyLastMonth },
     ] = await Promise.all([
       supabase.from("incomes").select("amount,date").gte("date", thisMonthStart).lte("date", thisMonthEnd),
-      supabase.from("expenses").select("amount,category,date").gte("date", thisMonthStart).lte("date", thisMonthEnd),
-      supabase.from("daily_spends").select("amount,date").gte("date", thisMonthStart).lte("date", thisMonthEnd),
-      supabase.from("savings_goals").select("*"), // Fetch all goals to filter DPS and get target names
+      supabase.from("expenses").select("amount,category,date,payment_method").gte("date", thisMonthStart).lte("date", thisMonthEnd),
+      supabase.from("daily_spends").select("amount,date,payment_method").gte("date", thisMonthStart).lte("date", thisMonthEnd),
+      supabase.from("savings_goals").select("*"),
       supabase.from("incomes").select("amount").gte("date", lastMonthStart).lte("date", lastMonthEnd),
-      supabase.from("expenses").select("amount").gte("date", lastMonthStart).lte("date", lastMonthEnd),
-      supabase.from("loans").select("*").eq("type", "taken").gt("remaining_amount", 0).not("due_date", "is", null),
+      supabase.from("expenses").select("amount,payment_method").gte("date", lastMonthStart).lte("date", lastMonthEnd),
+      supabase.from("loans").select("*"), // all loans to calculate balance additions/deductions
       supabase.from("recurring_expenses").select("*"),
       supabase.from("dps_payments").select("*"),
+      supabase.from("credit_bill_payments").select("*"),
+      supabase.from("loan_payments").select("*"),
+      supabase.from("daily_spends").select("amount,payment_method").gte("date", lastMonthStart).lte("date", lastMonthEnd),
     ]);
 
     const activeMonth = `${year}-${String(month + 1).padStart(2, "0")}`;
 
-    const totalIncome = (allIncomes || []).reduce((s, i) => s + Number(i.amount), 0);
-    const totalOneTime = (allExpenses || []).reduce((s, i) => s + Number(i.amount), 0);
-    const totalDaily = (allDaily || []).reduce((s, i) => s + Number(i.amount), 0);
+    // INCOME
+    const baseIncome = (allIncomes || []).reduce((s, i) => s + Number(i.amount), 0);
+    // Add taken loans (initial amount) generated this month
+    const loanIncome = (allLoans || []).filter(l => l.type === 'taken' && l.start_date >= thisMonthStart && l.start_date <= thisMonthEnd)
+      .reduce((s, l) => s + Number(l.amount), 0);
+    // Add repayments from loans 'given' (received this month)
+    const givenLoanRepayments = (loanPayments || []).filter(p => {
+       const l = (allLoans || []).find(x => x.id === p.loan_id);
+       if (!l || l.type !== 'given') return false;
+       const pd = new Date(p.paid_at);
+       return pd.getFullYear() === year && pd.getMonth() === month;
+    }).reduce((s, p) => s + Number(p.amount), 0);
     
-    // Active Recurring Expenses
+    const totalIncome = baseIncome + loanIncome + givenLoanRepayments;
+
+    // DEBIT EXPENSES (Exclude 'credit' method from daily, one-time, dps, and loan taken payments)
+    const totalOneTime = (allExpenses || []).reduce((s, i) => i.payment_method === 'credit' ? s : s + Number(i.amount), 0);
+    const totalDaily = (allDaily || []).reduce((s, i) => i.payment_method === 'credit' ? s : s + Number(i.amount), 0);
+    
+    // Active Recurring Expenses (Assume natively debit)
     const activeRecurring = (allRecurring || []).filter(r => {
-      // If we have the new date fields
       if (r.start_date) {
         const monthStart = `${activeMonth}-01`;
         const lastDay = new Date(year, month + 1, 0).getDate();
         const monthEnd = `${activeMonth}-${String(lastDay).padStart(2, "0")}`;
-        
-        const isStarted = r.start_date <= monthEnd;
-        const isNotEnded = !r.end_date || r.end_date >= monthStart;
-        return isStarted && isNotEnded;
+        return r.start_date <= monthEnd && (!r.end_date || r.end_date >= monthStart);
       }
-      // Fallback
       if (r.start_month) {
         return r.start_month <= activeMonth && (!r.end_month || r.end_month >= activeMonth);
       }
@@ -105,24 +125,35 @@ export function Dashboard() {
     
     const totalRecurring = activeRecurring.reduce((s, r) => {
       const base = Number(r.amount);
-      if (r.frequency === "weekly") {
-        return s + (base * countOccurrences(activeMonth, r.payment_day || 1));
-      }
+      if (r.frequency === "weekly") return s + (base * countOccurrences(activeMonth, r.payment_day || 1));
       return s + base;
     }, 0);
 
-
-
-    // Actual Paid DPS Savings
     const totalDps = (allDpsPayments || []).reduce((s, p) => {
-      const paidDate = new Date(p.paid_at);
-      if (paidDate.getFullYear() === year && paidDate.getMonth() === month) {
-         return s + Number(p.amount);
-      }
+      if (p.payment_method === 'credit') return s;
+      const pd = new Date(p.paid_at);
+      if (pd.getFullYear() === year && pd.getMonth() === month) return s + Number(p.amount);
       return s;
     }, 0);
 
-    const totalAllExpenses = totalOneTime + totalDaily + totalRecurring + totalDps;
+    // Initial output of loans 'given' to someone (expense)
+    const loansGiven = (allLoans || []).filter(l => l.type === 'given' && l.start_date >= thisMonthStart && l.start_date <= thisMonthEnd)
+      .reduce((s, l) => s + Number(l.amount), 0);
+    // Paying back taken loans (expense). Only count if debit!
+    const takenLoanRepayments = (loanPayments || []).filter(p => {
+       if (p.payment_method === 'credit') return false;
+       const l = (allLoans || []).find(x => x.id === p.loan_id);
+       if (!l || l.type !== 'taken') return false;
+       const pd = new Date(p.paid_at);
+       return pd.getFullYear() === year && pd.getMonth() === month;
+    }).reduce((s, p) => s + Number(p.amount), 0);
+
+    const creditBillsPaid = (creditBillPayments || []).filter(p => {
+       const pd = new Date(p.paid_at);
+       return pd.getFullYear() === year && pd.getMonth() === month;
+    }).reduce((s, p) => s + Number(p.amount), 0);
+
+    const totalAllExpenses = totalOneTime + totalDaily + totalRecurring + totalDps + loansGiven + takenLoanRepayments + creditBillsPaid;
     const totalSavings = (allSavings || []).reduce((s, g) => s + Number(g.current_amount), 0);
     const balance = totalIncome - totalAllExpenses;
 
@@ -184,6 +215,39 @@ export function Dashboard() {
         }
       });
     });
+
+    // Credit Bills logic
+    const lastMonthKey = `${month === 0 ? year - 1 : year}-${String(month === 0 ? 12 : month).padStart(2, "0")}`;
+    const lmY = month === 0 ? year - 1 : year;
+    const lmM = month === 0 ? 11 : month - 1; // 0-indexed
+
+    const lastMonthCreditExpenses = (lastMonthExpenses || []).reduce((s, e) => e.payment_method === 'credit' ? s + Number(e.amount) : s, 0);
+    const lastMonthCreditDaily = (allDailyLastMonth || []).reduce((s, e) => e.payment_method === 'credit' ? s + Number(e.amount) : s, 0);
+    
+    const lastMonthCreditDps = (allDpsPayments || []).filter(p => {
+       const pd = new Date(p.paid_at);
+       return p.payment_method === 'credit' && pd.getFullYear() === lmY && pd.getMonth() === lmM;
+    }).reduce((s, p) => s + Number(p.amount), 0);
+
+    const lastMonthCreditLoanPayments = (loanPayments || []).filter(p => {
+       const pd = new Date(p.paid_at);
+       return p.payment_method === 'credit' && pd.getFullYear() === lmY && pd.getMonth() === lmM;
+    }).reduce((s, p) => s + Number(p.amount), 0);
+
+    const totalCreditBill = lastMonthCreditExpenses + lastMonthCreditDaily + lastMonthCreditDps + lastMonthCreditLoanPayments;
+    const isCreditBillPaid = (creditBillPayments || []).some(b => b.bill_month === lastMonthKey);
+
+    if (totalCreditBill > 0 && !isCreditBillPaid) {
+       combinedReminders.push({
+           id: `credit_bill_${lastMonthKey}`,
+           title: `Credit Card Bill (${MONTH_NAMES[lmM]})`,
+           amount: totalCreditBill,
+           due_date: new Date(year, month, 1).toISOString().split('T')[0],
+           type: "credit_bill",
+           diffDays: 0, // Force display
+           original_month: lastMonthKey
+       });
+    }
 
     combinedReminders.sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
     setPaymentReminders(combinedReminders);
@@ -253,8 +317,34 @@ export function Dashboard() {
     }));
 
 
-    setLoading(false);
   }, []);
+
+  const handlePayCreditBill = async (rem) => {
+    setPayingBill(rem.id);
+    await supabase.from("credit_bill_payments").insert([{
+      bill_month: rem.original_month,
+      amount: rem.amount,
+      paid_at: new Date().toISOString()
+    }]);
+    setPayingBill(null);
+    fetchDashboardData();
+  };
+  
+  const handleQuickAdd = async () => {
+    if (!quickAdd.amount || !quickAdd.note.trim()) return;
+    setAddingQuick(true);
+    const { error } = await supabase.from("daily_spends").insert([{
+      amount: Number(quickAdd.amount),
+      note: quickAdd.note,
+      date: new Date().toISOString().split('T')[0],
+      payment_method: quickAdd.payment_method
+    }]);
+    if (!error) {
+      setQuickAdd({ amount: "", note: "", payment_method: "debit" });
+      fetchDashboardData();
+    }
+    setAddingQuick(false);
+  };
 
   useEffect(() => { fetchDashboardData(); }, [fetchDashboardData]);
 
@@ -386,33 +476,86 @@ export function Dashboard() {
         </Card>
       </div>
 
-      {/* Payment Reminders Section */}
-      {paymentReminders.length > 0 && (
-        <Card className="border-rose-200 bg-rose-50/20 dark:bg-rose-950/10">
-          <CardHeader className="pb-2 flex flex-row items-center gap-2">
-            <div className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
-            <CardTitle className="text-base text-rose-700 dark:text-rose-400">Payment Reminders</CardTitle>
+      {/* Reminders & Quick Add */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        {paymentReminders.length > 0 && (
+          <Card className="lg:col-span-2 border-rose-200 bg-rose-50/20 dark:bg-rose-950/10">
+            <CardHeader className="pb-2 flex flex-row items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
+              <CardTitle className="text-base text-rose-700 dark:text-rose-400">Payment Reminders</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2 pt-2">
+              {paymentReminders.map(rem => {
+                 return (
+                   <div key={rem.id} className="flex justify-between items-center p-3 rounded-lg border border-rose-100 dark:border-rose-900 bg-card shadow-sm">
+                     <div>
+                       <p className="font-bold text-sm">{rem.title}</p>
+                       <p className={`text-[10px] uppercase font-bold ${rem.diffDays <= 1 ? "text-rose-600" : "text-amber-600"}`}>
+                         {rem.diffDays === 0 ? "Due Today" : rem.diffDays === 1 ? "Due Tomorrow" : rem.diffDays < 0 ? "Overdue!" : `Due in ${rem.diffDays} days`}
+                       </p>
+                     </div>
+                     <div className="text-right flex items-center justify-end gap-3 border-l border-border/50 pl-4 ml-2">
+                       <div>
+                         <p className="font-extrabold text-rose-600">৳{Number(rem.amount).toLocaleString()}</p>
+                         <p className="text-[10px] text-muted-foreground">{rem.due_date}</p>
+                       </div>
+                       {rem.type === 'credit_bill' && (
+                          <div className="flex pl-2 items-center">
+                             <Button size="sm" onClick={() => handlePayCreditBill(rem)} disabled={payingBill === rem.id} className="h-7 text-xs px-2 shadow-sm font-bold">
+                                {payingBill === rem.id ? '...' : 'Pay'}
+                             </Button>
+                          </div>
+                       )}
+                     </div>
+                   </div>
+                 );
+              })}
+            </CardContent>
+          </Card>
+        )}
+
+        <Card className={`${paymentReminders.length === 0 ? 'lg:col-span-3' : 'lg:col-span-1'} border-primary/20 bg-primary/5`}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <div className="bg-primary text-primary-foreground p-1 rounded-md">
+                <Activity className="h-3 w-3" />
+              </div>
+              Quick Add (Daily)
+            </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 pt-2">
-            {paymentReminders.map(rem => {
-               return (
-                 <div key={rem.id} className="flex justify-between items-center p-3 rounded-lg border border-rose-100 dark:border-rose-900 bg-card shadow-sm">
-                   <div>
-                     <p className="font-bold text-sm">{rem.title}</p>
-                     <p className={`text-[10px] uppercase font-bold ${rem.diffDays <= 1 ? "text-rose-600" : "text-amber-600"}`}>
-                       {rem.diffDays === 0 ? "Due Today" : rem.diffDays === 1 ? "Due Tomorrow" : rem.diffDays < 0 ? "Overdue!" : `Due in ${rem.diffDays} days`}
-                     </p>
-                   </div>
-                   <div className="text-right">
-                     <p className="font-extrabold text-rose-600">৳{Number(rem.amount).toLocaleString()}</p>
-                     <p className="text-[10px] text-muted-foreground">{rem.due_date}</p>
-                   </div>
-                 </div>
-               );
-            })}
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <input 
+                type="number" placeholder="Amount (৳)" 
+                className="w-full text-sm bg-background border border-border rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={quickAdd.amount}
+                onChange={e => setQuickAdd({...quickAdd, amount: e.target.value})}
+              />
+            </div>
+            <div className="space-y-1">
+              <input 
+                type="text" placeholder="Expense for..." 
+                className="w-full text-sm bg-background border border-border rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={quickAdd.note}
+                onChange={e => setQuickAdd({...quickAdd, note: e.target.value})}
+              />
+            </div>
+            <div className="flex gap-1">
+              <button 
+                onClick={() => setQuickAdd({...quickAdd, payment_method: 'debit'})}
+                className={`flex-1 text-[10px] font-bold py-1.5 rounded transition-colors border ${quickAdd.payment_method === 'debit' ? 'bg-primary text-primary-foreground border-primary' : 'bg-transparent text-muted-foreground border-border'}`}
+              >DEBIT</button>
+              <button 
+                onClick={() => setQuickAdd({...quickAdd, payment_method: 'credit'})}
+                className={`flex-1 text-[10px] font-bold py-1.5 rounded transition-colors border ${quickAdd.payment_method === 'credit' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-transparent text-muted-foreground border-border'}`}
+              >CREDIT</button>
+            </div>
+            <Button className="w-full h-8 text-xs font-bold" onClick={handleQuickAdd} disabled={addingQuick || !quickAdd.amount || !quickAdd.note}>
+              {addingQuick ? 'Saving...' : 'Add Now'}
+            </Button>
           </CardContent>
         </Card>
-      )}
+      </div>
     </div>
   );
 }

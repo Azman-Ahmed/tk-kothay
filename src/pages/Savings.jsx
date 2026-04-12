@@ -153,13 +153,14 @@ export function Savings() {
     fetchGoals();
   };
 
-  const handlePayInstallment = async (goal, installment) => {
+  const handlePayInstallment = async (goal, installment, method = 'debit') => {
     setSaving(true);
     setPayingId(installment.due_date);
     const { error } = await supabase.from("dps_payments").insert([{
        savings_goal_id: goal.id,
        due_date: installment.due_date,
-       amount: installment.amount
+       amount: installment.amount,
+       payment_method: method
     }]);
     
     if (error) {
@@ -188,8 +189,57 @@ export function Savings() {
     : activeTab === "dps" ? dpsGoals
     : goals;
 
+  const viewGoal = goals.find(g => g.id === scheduleViewGoal);
+
   return (
     <div className="space-y-6">
+      {/* Schedule Modal */}
+      {viewGoal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 lg:p-12 animate-in fade-in duration-200">
+          <Card className="w-full max-w-4xl max-h-full flex flex-col shadow-2xl border-border bg-card">
+            <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between shrink-0">
+              <CardTitle className="text-xl flex items-center gap-2">
+                <RepeatIcon className="h-6 w-6 text-emerald-500 shrink-0" />
+                {viewGoal.name} - Full Schedule
+              </CardTitle>
+              <Button variant="ghost" size="icon" onClick={() => setScheduleViewGoal(null)} className="h-10 w-10 hover:bg-rose-100 hover:text-rose-600 dark:hover:bg-rose-950/50">
+                <X className="h-5 w-5" />
+              </Button>
+            </CardHeader>
+            <CardContent className="pt-4 flex-1 overflow-hidden min-h-0 flex flex-col gap-4">
+              <div className="flex-1 overflow-y-auto pr-3 text-sm custom-scrollbar max-h-[70vh]">
+                <div className="flex items-center justify-between font-bold text-sm sticky top-0 bg-card/95 backdrop-blur z-10 pb-3 border-b">
+                  <span>Due Date</span>
+                  <span>Amount</span>
+                  <span>Status</span>
+                </div>
+                {generateDPSSchedule(viewGoal, dpsPayments.filter(p => p.savings_goal_id === viewGoal.id)).map(inst => (
+                   <div key={inst.due_date} className="flex items-center justify-between py-3 border-b border-border/50 last:border-0 text-base">
+                     <span className={inst.status === 'missed' ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-foreground/80'}>{inst.due_date}</span>
+                     <span className="font-semibold">৳{inst.amount}</span>
+                     {inst.status === "paid" || payingId === inst.due_date ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 font-bold bg-emerald-50 dark:bg-emerald-900/20 px-3 py-1 rounded"><CheckCircle2 className="h-5 w-5"/> Paid</span>
+                     ) : (
+                        <div className="flex gap-2">
+                           <Button size="sm" variant={inst.status === 'missed' ? 'destructive' : 'outline'} className="h-8 px-3 text-xs shadow-sm hover:shadow-md transition-shadow" 
+                             onClick={() => handlePayInstallment(viewGoal, inst, 'debit')} disabled={saving}>{payingId === inst.due_date ? "..." : "Pay (Debit)"}</Button>
+                           <Button size="sm" variant="secondary" className="h-8 px-3 text-xs shadow-sm shadow-indigo-200 dark:shadow-none bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 transition-colors" 
+                             onClick={() => handlePayInstallment(viewGoal, inst, 'credit')} disabled={saving}>{payingId === inst.due_date ? "..." : "Pay (Credit)"}</Button>
+                        </div>
+                     )}
+                   </div>
+                ))}
+                {generateDPSSchedule(viewGoal, dpsPayments.filter(p => p.savings_goal_id === viewGoal.id)).length === 0 && (
+                  <div className="py-12 text-center text-muted-foreground text-sm flex flex-col items-center gap-3">
+                     <PiggyBank className="h-12 w-12 opacity-50" />
+                     No schedule found. Ensure start date and duration are set.
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
@@ -381,33 +431,7 @@ export function Savings() {
                   </div>
                 </CardHeader>
                 <CardContent className="flex-1 space-y-3">
-                  {scheduleViewGoal === goal.id ? (
-                    <div className="space-y-3 h-[200px] overflow-y-auto pr-1 text-sm custom-scrollbar bg-muted/20 p-2 rounded-md border">
-                      <div className="flex items-center justify-between font-bold text-xs sticky top-0 bg-card/95 backdrop-blur z-10 pb-2 border-b">
-                        <span>Due Date</span>
-                        <span>Amount</span>
-                        <span>Status</span>
-                      </div>
-                      {generateDPSSchedule(goal, dpsPayments.filter(p => p.savings_goal_id === goal.id)).map(inst => (
-                         <div key={inst.due_date} className="flex items-center justify-between py-1.5 border-b border-border/50 last:border-0 text-xs">
-                           <span className={inst.status === 'missed' ? 'text-rose-600 dark:text-rose-400 font-semibold' : ''}>{inst.due_date}</span>
-                           <span>৳{inst.amount}</span>
-                           {inst.status === "paid" || payingId === inst.due_date ? (
-                              <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-medium"><CheckCircle2 className="h-3.5 w-3.5"/> Paid</span>
-                           ) : (
-                              <Button size="sm" variant={inst.status === 'missed' ? 'destructive' : 'outline'} className="h-6 px-2.5 text-[10px]" 
-                                onClick={() => handlePayInstallment(goal, inst)} disabled={saving}>{payingId === inst.due_date ? "..." : "Pay"}</Button>
-                           )}
-                         </div>
-                      ))}
-                      {generateDPSSchedule(goal, dpsPayments.filter(p => p.savings_goal_id === goal.id)).length === 0 && (
-                        <div className="py-4 text-center text-muted-foreground text-xs">No schedule found. Ensure start date and duration are set.</div>
-                      )}
-                      <Button variant="outline" size="sm" className="w-full mt-2 h-7 text-xs" onClick={() => setScheduleViewGoal(null)}>Close Schedule</Button>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex justify-between items-end">
+                  <div className="flex justify-between items-end">
                         <span className="text-2xl font-bold">৳{Number(goal.current_amount).toLocaleString()}</span>
                         <span className="text-sm text-muted-foreground mb-1">/ ৳{Number(goal.target_amount).toLocaleString()}</span>
                       </div>
@@ -448,7 +472,7 @@ export function Savings() {
                       <Button size="sm" className="h-8 px-2" onClick={handleAddFunds} disabled={!fundForm.amount}><Check className="h-3.5 w-3.5" /></Button>
                       <Button size="sm" variant="outline" className="h-8 px-2" onClick={() => { setAddFundsGoal(null); setFundForm(INITIAL_FUND_FORM); }}><X className="h-3.5 w-3.5" /></Button>
                     </div>
-                  ) : scheduleViewGoal === goal.id ? null : (
+                  ) : (
                     <div className="grid grid-cols-2 gap-2 mt-2">
                       <Button variant="outline" size="sm" onClick={() => handleEdit(goal)}>Edit</Button>
                       <Button size="sm" disabled={isCompleted} onClick={() => { 
@@ -458,8 +482,6 @@ export function Savings() {
                         {goal.is_recurring ? "Schedule" : "Add Funds"}
                       </Button>
                     </div>
-                  )}
-                    </>
                   )}
                 </CardContent>
               </Card>

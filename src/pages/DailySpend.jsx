@@ -17,7 +17,7 @@ function monthLabel(ym) {
   return `${MONTHS[parseInt(m) - 1]} ${y}`;
 }
 
-const INITIAL_FORM = { amount: "", note: "", date: TODAY };
+const INITIAL_FORM = { amount: "", note: "", date: TODAY, payment_method: "debit" };
 
 export function DailySpend() {
   const [selectedMonth, setSelectedMonth] = useState(toYearMonth(new Date()));
@@ -88,9 +88,9 @@ export function DailySpend() {
     if (!form.amount || isNaN(form.amount) || !form.note.trim()) return;
     setSaving(true);
     if (editingId) {
-      await supabase.from("daily_spends").update({ amount: Number(form.amount), note: form.note, date: form.date }).eq("id", editingId);
+      await supabase.from("daily_spends").update({ amount: Number(form.amount), note: form.note, date: form.date, payment_method: form.payment_method }).eq("id", editingId);
     } else {
-      await supabase.from("daily_spends").insert([{ amount: Number(form.amount), note: form.note, date: selectedDate }]);
+      await supabase.from("daily_spends").insert([{ amount: Number(form.amount), note: form.note, date: selectedDate, payment_method: form.payment_method }]);
     }
     setForm({ ...INITIAL_FORM, date: selectedDate });
     setEditingId(null);
@@ -101,7 +101,7 @@ export function DailySpend() {
 
   const handleEdit = (item) => {
     setEditingId(item.id);
-    setForm({ amount: String(item.amount), note: item.note, date: item.date });
+    setForm({ amount: String(item.amount), note: item.note, date: item.date, payment_method: item.payment_method || "debit" });
     setView("day");
     setSelectedDate(item.date);
   };
@@ -195,6 +195,13 @@ export function DailySpend() {
                   <Input placeholder="e.g., Tea, Rickshaw..." value={form.note}
                     onChange={e => setForm({ ...form, note: e.target.value })} />
                 </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Payment Method</label>
+                  <div className="flex gap-2">
+                    <button onClick={() => setForm({ ...form, payment_method: 'debit' })} className={`flex-1 py-1.5 text-xs font-semibold rounded-md border transition-colors ${form.payment_method === 'debit' ? 'bg-primary text-primary-foreground border-primary' : 'bg-transparent border-border text-muted-foreground'}`}>Debit (Balance)</button>
+                    <button onClick={() => setForm({ ...form, payment_method: 'credit' })} className={`flex-1 py-1.5 text-xs font-semibold rounded-md border transition-colors ${form.payment_method === 'credit' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-transparent border-border text-muted-foreground'}`}>Credit Card</button>
+                  </div>
+                </div>
                 <div className="flex gap-2">
                   <Button className="flex-1" onClick={handleSave} disabled={saving || !form.amount || !form.note.trim()}>
                     {saving ? "..." : editingId ? "Update" : <><Plus className="mr-1 h-4 w-4" />Add</>}
@@ -223,10 +230,12 @@ export function DailySpend() {
                       <div key={item.id} className={`flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors ${editingId === item.id ? "ring-2 ring-primary" : ""}`}>
                         <div>
                           <p className="font-medium text-sm">{item.note}</p>
-                          <p className="text-xs text-muted-foreground">{item.date}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.date} • <span className={`font-semibold ${item.payment_method === 'credit' ? 'text-indigo-500' : 'text-emerald-600'}`}>{item.payment_method === 'credit' ? 'Credit' : 'Debit'}</span>
+                          </p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm text-rose-600 dark:text-rose-400">- ৳{Number(item.amount).toLocaleString()}</span>
+                          <span className={`font-semibold text-sm ${item.payment_method === 'credit' ? 'text-indigo-600 dark:text-indigo-400' : 'text-rose-600 dark:text-rose-400'}`}>- ৳{Number(item.amount).toLocaleString()}</span>
                           <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-blue-500" onClick={() => handleEdit(item)}><Pencil className="h-3.5 w-3.5" /></Button>
                           {deleteConfirm === item.id ? (
                             <div className="flex gap-1">
