@@ -12,6 +12,7 @@ import { Savings } from "./pages/Savings";
 import { Loans } from "./pages/Loans";
 import { BalanceSheet } from "./pages/BalanceSheet";
 import { Reports } from "./pages/Reports";
+import CreditDashboard from "./pages/CreditDashboard";
 import { Login } from "./pages/auth/Login";
 import { Signup } from "./pages/auth/Signup";
 import { Callback } from "./pages/auth/Callback";
@@ -41,6 +42,7 @@ function App() {
               <Route path="loans" element={<Loans />} />
               <Route path="reports" element={<Reports />} />
               <Route path="balance" element={<BalanceSheet />} />
+              <Route path="credit" element={<CreditDashboard />} />
             </Route>
           </Route>
         </Routes>

@@ -289,4 +289,17 @@ CREATE POLICY "Users manage own loan payments"
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+-- 4. Credit Settings (Limit)
+CREATE TABLE IF NOT EXISTS public.credit_settings (
+    user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    credit_limit NUMERIC DEFAULT 0,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
+ALTER TABLE public.credit_settings ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN DROP POLICY IF EXISTS "Users manage own credit settings" ON public.credit_settings; END $$;
+CREATE POLICY "Users manage own credit settings" 
+  ON public.credit_settings FOR ALL 
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
