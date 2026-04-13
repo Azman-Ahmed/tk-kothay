@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { ArrowUpRight, ArrowDownRight, Wallet, Activity, RefreshCw } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Wallet, Activity, RefreshCw, ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import {
@@ -45,14 +45,24 @@ export function Dashboard() {
   const [payingBill, setPayingBill] = useState(null);
   const [quickAdd, setQuickAdd] = useState({ amount: "", note: "", payment_method: "debit" });
   const [addingQuick, setAddingQuick] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // "YYYY-MM"
+
+  const shiftMonth = (delta) => {
+    const [y, m] = selectedMonth.split("-").map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    const ny = d.getFullYear();
+    const nm = String(d.getMonth() + 1).padStart(2, "0");
+    setSelectedMonth(`${ny}-${nm}`);
+  };
 
   const supabase = getSupabaseBrowserClient();
 
   const fetchDashboardData = useCallback(async () => {
-    setLoading(true);
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth(); // 0-indexed
+    try {
+      setLoading(true);
+      const [year, monthMinusOne] = selectedMonth.split("-").map(Number);
+      const month = monthMinusOne - 1; // 0-indexed for JS Date
+      const now = new Date(); // still needed for relative due-date diffs, but base month is selectedMonth
 
     const thisMonthStart = new Date(year, month, 1).toISOString().split("T")[0];
     const thisMonthEnd = new Date(year, month + 1, 0).toISOString().split("T")[0];
@@ -317,7 +327,12 @@ export function Dashboard() {
     }));
 
 
-  }, []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }, [supabase, selectedMonth]);
 
   const handlePayCreditBill = async (rem) => {
     setPayingBill(rem.id);
@@ -346,7 +361,7 @@ export function Dashboard() {
     setAddingQuick(false);
   };
 
-  useEffect(() => { fetchDashboardData(); }, [fetchDashboardData]);
+  useEffect(() => { fetchDashboardData(); }, [fetchDashboardData, selectedMonth]);
 
   const statCards = [
     {
@@ -385,16 +400,51 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">Welcome back! Here's your financial overview.</p>
         </div>
-        <button onClick={fetchDashboardData} disabled={loading}
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          {loading ? "Loading..." : "Refresh"}
-        </button>
+        
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1 bg-card border border-border rounded-lg px-2 py-1.5 shadow-sm">
+            <button 
+              onClick={() => shiftMonth(-1)} 
+              className="p-1 rounded hover:bg-muted transition-colors"
+              title="Previous Month"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <div className="flex items-center gap-2 px-2 border-x border-border/50">
+              <Calendar className="h-4 w-4 text-primary" />
+              <span className="text-sm font-bold min-w-[100px] text-center">
+                {MONTH_NAMES[parseInt(selectedMonth.split("-")[1]) - 1]} {selectedMonth.split("-")[0]}
+              </span>
+            </div>
+            <button 
+              onClick={() => shiftMonth(1)} 
+              className="p-1 rounded hover:bg-muted transition-colors"
+              title="Next Month"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="h-9 px-3 font-semibold border-primary/20 hover:bg-primary/5 hover:text-primary transition-all"
+            onClick={() => setSelectedMonth(new Date().toISOString().slice(0, 7))}
+          >
+            Today
+          </Button>
+
+          <button onClick={fetchDashboardData} disabled={loading}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 ml-2">
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            {loading ? "..." : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {/* Stat Cards */}
