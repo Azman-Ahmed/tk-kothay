@@ -10,7 +10,14 @@ export function cn(...inputs) {
  * Avoids the 1-day offset bug caused by toISOString() in positive timezones.
  */
 export function formatLocalDate(date = new Date()) {
-  const d = new Date(date);
+  let d;
+  if (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    // If it is EXACTLY YYYY-MM-DD, parse manually to avoid UTC conversion
+    const [y, m, d_part] = date.split("-").map(Number);
+    d = new Date(y, m - 1, d_part);
+  } else {
+    d = new Date(date);
+  }
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -51,7 +58,8 @@ export function generateDPSSchedule(goal, payments = []) {
   if (!goal.is_recurring || !goal.start_date || !goal.duration_months) return [];
 
   const installments = [];
-  const start = new Date(goal.start_date);
+  const [startY, startM, startD] = goal.start_date.split("-").map(Number);
+  const start = new Date(startY, startM - 1, startD);
   const amount = Number(goal.monthly_amount || 0);
   const frequency = goal.frequency || "monthly";
   const duration = parseInt(goal.duration_months);

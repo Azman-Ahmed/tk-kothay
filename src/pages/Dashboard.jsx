@@ -45,7 +45,7 @@ export function Dashboard() {
   const [payingBill, setPayingBill] = useState(null);
   const [quickAdd, setQuickAdd] = useState({ amount: "", note: "", payment_method: "debit" });
   const [addingQuick, setAddingQuick] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // "YYYY-MM"
+  const [selectedMonth, setSelectedMonth] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`); // "YYYY-MM"
 
   const shiftMonth = (delta) => {
     const [y, m] = selectedMonth.split("-").map(Number);
@@ -189,7 +189,8 @@ export function Dashboard() {
     const combinedReminders = [];
 
     (allLoans || []).forEach(l => {
-      const due = new Date(l.due_date);
+      const [y, m, d] = l.due_date.split("-").map(Number);
+      const due = new Date(y, m - 1, d);
       const diffDays = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
       if (diffDays <= 7 && diffDays >= -1) {
          combinedReminders.push({
@@ -210,7 +211,8 @@ export function Dashboard() {
       
       schedule.forEach(inst => {
         if (inst.status !== "paid") {
-           const due = new Date(inst.due_date);
+           const [y, m, d] = inst.due_date.split("-").map(Number);
+           const due = new Date(y, m - 1, d);
            const diffDays = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
            if (diffDays <= 7) {
               combinedReminders.push({
