@@ -36,7 +36,7 @@ function countOccurrences(ym, dayOfWeek) {
 
 export function Dashboard() {
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({ balance: 0, income: 0, expense: 0, savings: 0 });
+  const [stats, setStats] = useState({ balance: 0, income: 0, expense: 0, savings: 0, carryForward: 0 });
   const [prevStats, setPrevStats] = useState({ income: 0, expense: 0 });
   const [barData, setBarData] = useState([]);
   const [pieData, setPieData] = useState([]);
@@ -60,129 +60,192 @@ export function Dashboard() {
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
-      const [year, monthMinusOne] = selectedMonth.split("-").map(Number);
-      const month = monthMinusOne - 1; // 0-indexed for JS Date
-      const now = new Date(); // still needed for relative due-date diffs, but base month is selectedMonth
+      const [selY, monthMinusOne] = selectedMonth.split("-").map(Number);
+      const selM = monthMinusOne; // 1-indexed
+      const year = selY;
+      const month = selM - 1; // 0-indexed for JS Date
+      const now = new Date();
 
-    const thisMonthStart = new Date(year, month, 1).toISOString().split("T")[0];
-    const thisMonthEnd = new Date(year, month + 1, 0).toISOString().split("T")[0];
-    const lastMonthStart = new Date(year, month - 1, 1).toISOString().split("T")[0];
-    const lastMonthEnd = new Date(year, month, 0).toISOString().split("T")[0];
+      // Parallel fetches for ALL time
+      const [
+        { data: allIncomes },
+        { data: allExpenses },
+        { data: allDaily },
+        { data: allSavings },
+        { data: allLoans },
+        { data: allRecurring },
+        { data: allDpsPayments },
+        { data: creditBillPayments },
+        { data: loanPayments },
+      ] = await Promise.all([
+        supabase.from("incomes").select("amount,date"),
+        supabase.from("expenses").select("amount,category,date,payment_method"),
+        supabase.from("daily_spends").select("amount,date,payment_method"),
+        supabase.from("savings_goals").select("*"),
+        supabase.from("loans").select("*"), 
+        supabase.from("recurring_expenses").select("*"),
+        supabase.from("dps_payments").select("*"),
+        supabase.from("credit_bill_payments").select("*"),
+        supabase.from("loan_payments").select("*"),
+      ]);
 
-    // Parallel fetches
-    const [
-      { data: allIncomes },
-      { data: allExpenses },
-      { data: allDaily },
-      { data: allSavings },
-      { data: lastMonthIncomes },
-      { data: lastMonthExpenses },
-      { data: allLoans },
-      { data: allRecurring },
-      { data: allDpsPayments },
-      { data: creditBillPayments },
-      { data: loanPayments },
-      { data: allDailyLastMonth },
-    ] = await Promise.all([
-      supabase.from("incomes").select("amount,date").gte("date", thisMonthStart).lte("date", thisMonthEnd),
-      supabase.from("expenses").select("amount,category,date,payment_method").gte("date", thisMonthStart).lte("date", thisMonthEnd),
-      supabase.from("daily_spends").select("amount,date,payment_method").gte("date", thisMonthStart).lte("date", thisMonthEnd),
-      supabase.from("savings_goals").select("*"),
-      supabase.from("incomes").select("amount").gte("date", lastMonthStart).lte("date", lastMonthEnd),
-      supabase.from("expenses").select("amount,payment_method").gte("date", lastMonthStart).lte("date", lastMonthEnd),
-      supabase.from("loans").select("*"), // all loans to calculate balance additions/deductions
-      supabase.from("recurring_expenses").select("*"),
-      supabase.from("dps_payments").select("*"),
-      supabase.from("credit_bill_payments").select("*"),
-      supabase.from("loan_payments").select("*"),
-      supabase.from("daily_spends").select("amount,payment_method").gte("date", lastMonthStart).lte("date", lastMonthEnd),
-    ]);
+      const calculateMonthStats = (mStr) => {
+        const [yNum, mNum] = mStr.split("-").map(Number);
+        const mIdx = mNum - 1;
+        const lastDay = new Date(yNum, mNum, 0).getDate();
+        const mStart = `${yNum}-${String(mNum).padStart(2, "0")}-01`;
+        const mEnd = `${yNum}-${String(mNum).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+        const activeMonth = mStr;
 
-    const activeMonth = `${year}-${String(month + 1).padStart(2, "0")}`;
+        const baseIncome = (allIncomes || [])
+          .filter(i => i.date >= mStart && i.date <= mEnd)
+          .reduce((s, i) => s + Number(i.amount), 0);
+          
+        const loanIncome = (allLoans || [])
+          .filter(l => l.type === 'taken' && l.start_date >= mStart && l.start_date <= mEnd)
+          .reduce((s, l) => s + Number(l.amount), 0);
+          
+        const givenLoanRepayments = (loanPayments || []).filter(p => {
+          const l = (allLoans || []).find(x => x.id === p.loan_id);
+          if (!l || l.type !== 'given') return false;
+          const pd = new Date(p.paid_at);
+          return pd.getFullYear() === yNum && pd.getMonth() === mIdx;
+        }).reduce((s, p) => s + Number(p.amount), 0);
+        
+        const totalIncome = baseIncome + loanIncome + givenLoanRepayments;
 
-    // INCOME
-    const baseIncome = (allIncomes || []).reduce((s, i) => s + Number(i.amount), 0);
-    // Add taken loans (initial amount) generated this month
-    const loanIncome = (allLoans || []).filter(l => l.type === 'taken' && l.start_date >= thisMonthStart && l.start_date <= thisMonthEnd)
-      .reduce((s, l) => s + Number(l.amount), 0);
-    // Add repayments from loans 'given' (received this month)
-    const givenLoanRepayments = (loanPayments || []).filter(p => {
-       const l = (allLoans || []).find(x => x.id === p.loan_id);
-       if (!l || l.type !== 'given') return false;
-       const pd = new Date(p.paid_at);
-       return pd.getFullYear() === year && pd.getMonth() === month;
-    }).reduce((s, p) => s + Number(p.amount), 0);
-    
-    const totalIncome = baseIncome + loanIncome + givenLoanRepayments;
+        const totalOneTime = (allExpenses || [])
+          .filter(i => i.date >= mStart && i.date <= mEnd)
+          .reduce((s, i) => i.payment_method === 'credit' ? s : s + Number(i.amount), 0);
+          
+        const totalDaily = (allDaily || [])
+          .filter(i => i.date >= mStart && i.date <= mEnd)
+          .reduce((s, i) => i.payment_method === 'credit' ? s : s + Number(i.amount), 0);
+          
+        const activeRecurring = (allRecurring || []).filter(r => {
+          if (r.start_date) {
+            const monthStartStr = `${activeMonth}-01`;
+            const rLastDay = new Date(yNum, mNum, 0).getDate();
+            const monthEndStr = `${activeMonth}-${String(rLastDay).padStart(2, "0")}`;
+            return r.start_date <= monthEndStr && (!r.end_date || r.end_date >= monthStartStr);
+          }
+          if (r.start_month) {
+            return r.start_month <= activeMonth && (!r.end_month || r.end_month >= activeMonth);
+          }
+          return false;
+        });
+        
+        const totalRecurring = activeRecurring.reduce((s, r) => {
+          const base = Number(r.amount);
+          if (r.frequency === "weekly") return s + (base * countOccurrences(activeMonth, r.payment_day || 1));
+          return s + base;
+        }, 0);
 
-    // DEBIT EXPENSES (Exclude 'credit' method from daily, one-time, dps, and loan taken payments)
-    const totalOneTime = (allExpenses || []).reduce((s, i) => i.payment_method === 'credit' ? s : s + Number(i.amount), 0);
-    const totalDaily = (allDaily || []).reduce((s, i) => i.payment_method === 'credit' ? s : s + Number(i.amount), 0);
-    
-    // Active Recurring Expenses (Assume natively debit)
-    const activeRecurring = (allRecurring || []).filter(r => {
-      if (r.start_date) {
-        const monthStart = `${activeMonth}-01`;
-        const lastDay = new Date(year, month + 1, 0).getDate();
-        const monthEnd = `${activeMonth}-${String(lastDay).padStart(2, "0")}`;
-        return r.start_date <= monthEnd && (!r.end_date || r.end_date >= monthStart);
+        const totalDps = (allDpsPayments || []).reduce((s, p) => {
+          if (p.payment_method === 'credit') return s;
+          const pd = new Date(p.paid_at);
+          if (pd.getFullYear() === yNum && pd.getMonth() === mIdx) return s + Number(p.amount);
+          return s;
+        }, 0);
+
+        const loansGiven = (allLoans || [])
+          .filter(l => l.type === 'given' && l.start_date >= mStart && l.start_date <= mEnd)
+          .reduce((s, l) => s + Number(l.amount), 0);
+          
+        const takenLoanRepayments = (loanPayments || []).filter(p => {
+           if (p.payment_method === 'credit') return false;
+           const l = (allLoans || []).find(x => x.id === p.loan_id);
+           if (!l || l.type !== 'taken') return false;
+           const pd = new Date(p.paid_at);
+           return pd.getFullYear() === yNum && pd.getMonth() === mIdx;
+        }).reduce((s, p) => s + Number(p.amount), 0);
+
+        const creditBillsPaid = (creditBillPayments || []).filter(p => {
+           const pd = new Date(p.paid_at);
+           return pd.getFullYear() === yNum && pd.getMonth() === mIdx;
+        }).reduce((s, p) => s + Number(p.amount), 0);
+
+        const totalAllExpenses = totalOneTime + totalDaily + totalRecurring + totalDps + loansGiven + takenLoanRepayments + creditBillsPaid;
+
+        const categoryMap = {};
+        (allExpenses || [])
+          .filter(e => e.date >= mStart && e.date <= mEnd)
+          .forEach(e => { categoryMap[e.category] = (categoryMap[e.category] || 0) + Number(e.amount); });
+
+        return {
+          totalIncome,
+          totalAllExpenses,
+          totalDaily,
+          totalRecurring,
+          totalDps,
+          categoryMap
+        };
+      };
+
+      // Determine the earliest record date to start calculating carry forward
+      let earliestDateStr = null;
+      const allDates = [];
+      if (allIncomes) allIncomes.forEach(i => allDates.push(i.date));
+      if (allExpenses) allExpenses.forEach(e => allDates.push(e.date));
+      if (allDaily) allDaily.forEach(d => allDates.push(d.date));
+      if (allLoans) allLoans.forEach(l => { if(l.start_date) allDates.push(l.start_date); else allDates.push(l.created_at.split('T')[0]); });
+      
+      if (allDates.length > 0) {
+        allDates.sort();
+        earliestDateStr = allDates[0];
+      } else {
+        earliestDateStr = `${selY}-${String(selM).padStart(2, "0")}-01`;
       }
-      if (r.start_month) {
-        return r.start_month <= activeMonth && (!r.end_month || r.end_month >= activeMonth);
+
+      let [currentY, currentM] = earliestDateStr.split("-").map(Number);
+      let carryForward = 0;
+      
+      // Calculate carry forward cumulatively, flooring at 0 each month
+      while (currentY < selY || (currentY === selY && currentM < selM)) {
+         const mStr = `${currentY}-${String(currentM).padStart(2, '0')}`;
+         const stats = calculateMonthStats(mStr);
+         carryForward = Math.max(0, carryForward + stats.totalIncome - stats.totalAllExpenses);
+         
+         currentM++;
+         if (currentM > 12) {
+           currentM = 1;
+           currentY++;
+         }
       }
-      return false;
-    });
-    
-    const totalRecurring = activeRecurring.reduce((s, r) => {
-      const base = Number(r.amount);
-      if (r.frequency === "weekly") return s + (base * countOccurrences(activeMonth, r.payment_day || 1));
-      return s + base;
-    }, 0);
 
-    const totalDps = (allDpsPayments || []).reduce((s, p) => {
-      if (p.payment_method === 'credit') return s;
-      const pd = new Date(p.paid_at);
-      if (pd.getFullYear() === year && pd.getMonth() === month) return s + Number(p.amount);
-      return s;
-    }, 0);
+      const currentStats = calculateMonthStats(selectedMonth);
+      
+      let lastM = selM - 1;
+      let lastY = selY;
+      if (lastM === 0) { lastM = 12; lastY--; }
+      const lastMonthStr = `${lastY}-${String(lastM).padStart(2, "0")}`;
+      const lastStats = calculateMonthStats(lastMonthStr);
 
-    // Initial output of loans 'given' to someone (expense)
-    const loansGiven = (allLoans || []).filter(l => l.type === 'given' && l.start_date >= thisMonthStart && l.start_date <= thisMonthEnd)
-      .reduce((s, l) => s + Number(l.amount), 0);
-    // Paying back taken loans (expense). Only count if debit!
-    const takenLoanRepayments = (loanPayments || []).filter(p => {
-       if (p.payment_method === 'credit') return false;
-       const l = (allLoans || []).find(x => x.id === p.loan_id);
-       if (!l || l.type !== 'taken') return false;
-       const pd = new Date(p.paid_at);
-       return pd.getFullYear() === year && pd.getMonth() === month;
-    }).reduce((s, p) => s + Number(p.amount), 0);
+      const totalAllExpenses = currentStats.totalAllExpenses;
+      const totalSavings = (allSavings || []).reduce((s, g) => s + Number(g.current_amount), 0);
+      const balance = carryForward + currentStats.totalIncome - totalAllExpenses;
 
-    const creditBillsPaid = (creditBillPayments || []).filter(p => {
-       const pd = new Date(p.paid_at);
-       return pd.getFullYear() === year && pd.getMonth() === month;
-    }).reduce((s, p) => s + Number(p.amount), 0);
-
-    const totalAllExpenses = totalOneTime + totalDaily + totalRecurring + totalDps + loansGiven + takenLoanRepayments + creditBillsPaid;
-    const totalSavings = (allSavings || []).reduce((s, g) => s + Number(g.current_amount), 0);
-    const balance = totalIncome - totalAllExpenses;
-
-    const prevIncome = (lastMonthIncomes || []).reduce((s, i) => s + Number(i.amount), 0);
-    const prevExpense = (lastMonthExpenses || []).reduce((s, i) => s + Number(i.amount), 0);
-
-    setStats({ balance, income: totalIncome, expense: totalAllExpenses, savings: totalSavings });
-    setPrevStats({ income: prevIncome, expense: prevExpense });
+      window.__dashboard_allExpenses = allExpenses; // store them globally temporarily for credit logic downward
+      window.__dashboard_allDaily = allDaily; 
+      
+      setStats({ 
+        balance, 
+        income: currentStats.totalIncome, 
+        expense: totalAllExpenses, 
+        savings: totalSavings,
+        carryForward 
+      });
+      setPrevStats({ income: lastStats.totalIncome, expense: lastStats.totalAllExpenses });
 
     // Top active savings goal
     const topGoal = (allSavings || []).find(g => Number(g.current_amount) < Number(g.target_amount));
     setActiveSavingName(topGoal?.name || "No active goal");
 
     // Pie chart: expenses by category (this month)
-    const categoryMap = {};
-    (allExpenses || []).forEach(e => { categoryMap[e.category] = (categoryMap[e.category] || 0) + Number(e.amount); });
-    if (totalDaily > 0) categoryMap["Daily Spend"] = (categoryMap["Daily Spend"] || 0) + totalDaily;
-    if (totalRecurring > 0) categoryMap["Recurring EMI"] = (categoryMap["Recurring EMI"] || 0) + totalRecurring;
-    if (totalDps > 0) categoryMap["DPS Savings"] = (categoryMap["DPS Savings"] || 0) + totalDps;
+    const categoryMap = currentStats.categoryMap;
+    if (currentStats.totalDaily > 0) categoryMap["Daily Spend"] = (categoryMap["Daily Spend"] || 0) + currentStats.totalDaily;
+    if (currentStats.totalRecurring > 0) categoryMap["Recurring EMI"] = (categoryMap["Recurring EMI"] || 0) + currentStats.totalRecurring;
+    if (currentStats.totalDps > 0) categoryMap["DPS Savings"] = (categoryMap["DPS Savings"] || 0) + currentStats.totalDps;
     setPieData(Object.entries(categoryMap).map(([name, value]) => ({ name, value })));
 
     // Compute Reminders (Loans + DPS)
@@ -230,20 +293,25 @@ export function Dashboard() {
 
     // Credit Bills logic
     const lastMonthKey = `${month === 0 ? year - 1 : year}-${String(month === 0 ? 12 : month).padStart(2, "0")}`;
-    const lmY = month === 0 ? year - 1 : year;
-    const lmM = month === 0 ? 11 : month - 1; // 0-indexed
+    const cb_lmY = month === 0 ? year - 1 : year;
+    const cb_lmM = month === 0 ? 11 : month - 1; // 0-indexed
 
-    const lastMonthCreditExpenses = (lastMonthExpenses || []).reduce((s, e) => e.payment_method === 'credit' ? s + Number(e.amount) : s, 0);
-    const lastMonthCreditDaily = (allDailyLastMonth || []).reduce((s, e) => e.payment_method === 'credit' ? s + Number(e.amount) : s, 0);
+    const lmStart = `${cb_lmY}-${String(cb_lmM + 1).padStart(2, "0")}-01`;
+    const lmEnd = `${cb_lmY}-${String(cb_lmM + 1).padStart(2, "0")}-${String(new Date(cb_lmY, cb_lmM + 1, 0).getDate()).padStart(2, "0")}`;
+    const lastMonthExpensesList = (window.__dashboard_allExpenses || []).filter(e => e.date >= lmStart && e.date <= lmEnd);
+    const allDailyLastMonthList = (window.__dashboard_allDaily || []).filter(e => e.date >= lmStart && e.date <= lmEnd);
+
+    const lastMonthCreditExpenses = lastMonthExpensesList.reduce((s, e) => e.payment_method === 'credit' ? s + Number(e.amount) : s, 0);
+    const lastMonthCreditDaily = allDailyLastMonthList.reduce((s, e) => e.payment_method === 'credit' ? s + Number(e.amount) : s, 0);
     
     const lastMonthCreditDps = (allDpsPayments || []).filter(p => {
        const pd = new Date(p.paid_at);
-       return p.payment_method === 'credit' && pd.getFullYear() === lmY && pd.getMonth() === lmM;
+       return p.payment_method === 'credit' && pd.getFullYear() === cb_lmY && pd.getMonth() === cb_lmM;
     }).reduce((s, p) => s + Number(p.amount), 0);
 
     const lastMonthCreditLoanPayments = (loanPayments || []).filter(p => {
        const pd = new Date(p.paid_at);
-       return p.payment_method === 'credit' && pd.getFullYear() === lmY && pd.getMonth() === lmM;
+       return p.payment_method === 'credit' && pd.getFullYear() === cb_lmY && pd.getMonth() === cb_lmM;
     }).reduce((s, p) => s + Number(p.amount), 0);
 
     const totalCreditBill = lastMonthCreditExpenses + lastMonthCreditDaily + lastMonthCreditDps + lastMonthCreditLoanPayments;
@@ -371,8 +439,10 @@ export function Dashboard() {
       value: `৳${stats.balance.toLocaleString()}`,
       icon: Wallet,
       iconColor: "text-muted-foreground",
-      valueColor: stats.balance >= 0 ? "text-foreground" : "text-rose-600 dark:text-rose-400",
-      sub: "This month",
+      valueColor: stats.balance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
+      sub: stats.carryForward > 0 
+        ? `Incl. ৳${stats.carryForward.toLocaleString()} unused from past` 
+        : "This month",
     },
     {
       title: "Monthly Income",
