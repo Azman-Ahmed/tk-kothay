@@ -344,8 +344,8 @@ export function Expenses() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Recurring Expenses</h1>
-          <p className="text-muted-foreground">EMI, rent, subscriptions, and savings contributions — auto-tracked every month.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Recurring Expenses</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">EMI, rent, subscriptions, and savings contributions — auto-tracked every month.</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 bg-card border border-border rounded-lg px-2 py-1.5">

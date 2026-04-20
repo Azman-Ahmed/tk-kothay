@@ -1,21 +1,27 @@
-import { Moon, Sun, Bell, LogOut, Menu } from "lucide-react";
+import { useState } from "react";
+import { Moon, Sun, Bell, LogOut, Menu, MessageSquareShare } from "lucide-react";
 import { useAppContext } from "../../context/AppContext";
 import { Button } from "../ui/Button";
+import { FeedbackModal } from "../ui/FeedbackModal";
 
 export function Topbar() {
   const { theme, toggleTheme, user, handleSignOut, setIsMobileMenuOpen } = useAppContext();
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 
   return (
-    <header className="hide-on-print sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b bg-card px-6 shadow-sm">
+    <header className="hide-on-print sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b bg-card px-4 sm:px-6 shadow-sm">
 
-      <div className="flex items-center gap-4 lg:hidden">
+      <div className="flex items-center gap-2 sm:gap-4 lg:hidden">
         <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(true)}>
           <Menu className="h-6 w-6" />
         </Button>
-        <span className="font-bold text-xl text-primary">MoneyMate</span>
+        <span className="font-bold text-lg sm:text-xl text-primary">MoneyMate</span>
       </div>
       
-      <div className="flex flex-1 justify-end items-center gap-4">
+      <div className="flex flex-1 justify-end items-center gap-2 sm:gap-4">
+        <Button variant="ghost" size="icon" onClick={() => setIsFeedbackOpen(true)} aria-label="Feedback" title="Send Feedback">
+          <MessageSquareShare className="h-5 w-5" />
+        </Button>
         <Button variant="ghost" size="icon" aria-label="Notifications">
           <Bell className="h-5 w-5" />
         </Button>
@@ -42,6 +48,7 @@ export function Topbar() {
           )}
         </div>
       </div>
+      <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
     </header>
   );
 }

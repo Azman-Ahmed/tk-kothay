@@ -69,7 +69,7 @@ export function Sidebar() {
         isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
       )}>
 
-        <div className="flex h-16 items-center justify-between border-b px-6">
+        <div className="flex h-16 items-center justify-between border-b px-4 sm:px-6">
           <div className="flex items-center gap-2 font-bold text-xl text-primary">
             <Wallet className="h-6 w-6" />
             <span>MoneyMate</span>

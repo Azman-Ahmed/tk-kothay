@@ -243,8 +243,8 @@ export function Savings() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Savings Goals</h1>
-          <p className="text-muted-foreground">Set targets and track your progress. Manage precise DPS installments easily.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Savings Goals</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">Set targets and track your progress. Manage precise DPS installments easily.</p>
         </div>
         <Button onClick={() => { setShowForm(true); setEditingId(null); setForm(INITIAL_FORM); setAddFundsGoal(null); setScheduleViewGoal(null); }}>
           <Plus className="mr-2 h-4 w-4" /> New Goal
