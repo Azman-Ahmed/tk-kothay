@@ -17,7 +17,7 @@ function monthLabel(ym) {
   return `${MONTHS[parseInt(m) - 1]} ${y}`;
 }
 
-const INITIAL_FORM = { amount: "", note: "", date: TODAY, payment_method: "debit" };
+const INITIAL_FORM = { amount: "", note: "", date: TODAY, payment_method: "debit", applicable_month: toYearMonth(new Date()) };
 
 export function DailySpend() {
   const [selectedMonth, setSelectedMonth] = useState(toYearMonth(new Date()));
@@ -60,17 +60,12 @@ export function DailySpend() {
     setLoading(false);
   }, [selectedDate, view]);
 
-  // Fetch monthly summary
   const fetchMonthSpends = useCallback(async () => {
     if (view !== "month") return;
     setLoading(true);
-    const [y, m] = selectedMonth.split("-");
-    const startDate = `${y}-${m}-01`;
-    const lastDay = new Date(parseInt(y), parseInt(m), 0).getDate();
-    const endDate = `${y}-${m}-${String(lastDay).padStart(2, "0")}`;
     const { data, error } = await supabase
       .from("daily_spends").select("date, amount")
-      .gte("date", startDate).lte("date", endDate)
+      .eq("applicable_month", selectedMonth)
       .order("date", { ascending: true });
     if (error) console.error(error);
     else {
@@ -88,11 +83,11 @@ export function DailySpend() {
     if (!form.amount || isNaN(form.amount) || !form.note.trim()) return;
     setSaving(true);
     if (editingId) {
-      await supabase.from("daily_spends").update({ amount: Number(form.amount), note: form.note, date: form.date, payment_method: form.payment_method }).eq("id", editingId);
+      await supabase.from("daily_spends").update({ amount: Number(form.amount), note: form.note, date: form.date, applicable_month: form.applicable_month, payment_method: form.payment_method }).eq("id", editingId);
     } else {
-      await supabase.from("daily_spends").insert([{ amount: Number(form.amount), note: form.note, date: selectedDate, payment_method: form.payment_method }]);
+      await supabase.from("daily_spends").insert([{ amount: Number(form.amount), note: form.note, date: selectedDate, applicable_month: form.applicable_month || selectedMonth, payment_method: form.payment_method }]);
     }
-    setForm({ ...INITIAL_FORM, date: selectedDate });
+    setForm({ ...INITIAL_FORM, date: selectedDate, applicable_month: selectedMonth });
     setEditingId(null);
     setSaving(false);
     fetchDaySpends();
@@ -101,7 +96,7 @@ export function DailySpend() {
 
   const handleEdit = (item) => {
     setEditingId(item.id);
-    setForm({ amount: String(item.amount), note: item.note, date: item.date, payment_method: item.payment_method || "debit" });
+    setForm({ amount: String(item.amount), note: item.note, date: item.date, applicable_month: item.applicable_month || item.date.slice(0, 7), payment_method: item.payment_method || "debit" });
     setView("day");
     setSelectedDate(item.date);
   };
@@ -194,6 +189,10 @@ export function DailySpend() {
                   <label className="text-sm font-medium">What was it for?</label>
                   <Input placeholder="e.g., Tea, Rickshaw..." value={form.note}
                     onChange={e => setForm({ ...form, note: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-amber-600 dark:text-amber-400">Applicable Month (Budget)</label>
+                  <Input type="month" value={form.applicable_month} onChange={e => setForm({ ...form, applicable_month: e.target.value })} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Payment Method</label>

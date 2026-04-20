@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS public.expenses (
     category TEXT NOT NULL,
     amount NUMERIC NOT NULL,
     date DATE NOT NULL,
+    applicable_month TEXT,
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
@@ -21,6 +22,7 @@ CREATE TABLE IF NOT EXISTS public.incomes (
     source TEXT NOT NULL,
     amount NUMERIC NOT NULL,
     date DATE NOT NULL,
+    applicable_month TEXT,
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
@@ -32,6 +34,7 @@ CREATE TABLE IF NOT EXISTS public.daily_spends (
     amount NUMERIC NOT NULL,
     note TEXT NOT NULL,
     date DATE NOT NULL,
+    applicable_month TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
@@ -262,6 +265,20 @@ CREATE TABLE IF NOT EXISTS public.credit_bill_payments (
   paid_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(user_id, bill_month)
 );
+
+-- Migrations for applicable_month
+DO $$ 
+BEGIN 
+  -- Add column if it doesn't exist
+  ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS applicable_month TEXT;
+  ALTER TABLE public.incomes ADD COLUMN IF NOT EXISTS applicable_month TEXT;
+  ALTER TABLE public.daily_spends ADD COLUMN IF NOT EXISTS applicable_month TEXT;
+
+  -- Backfill existing rows
+  UPDATE public.expenses SET applicable_month = to_char(date, 'YYYY-MM') WHERE applicable_month IS NULL;
+  UPDATE public.incomes SET applicable_month = to_char(date, 'YYYY-MM') WHERE applicable_month IS NULL;
+  UPDATE public.daily_spends SET applicable_month = to_char(date, 'YYYY-MM') WHERE applicable_month IS NULL;
+END $$;
 
 ALTER TABLE public.credit_bill_payments ENABLE ROW LEVEL SECURITY;
 

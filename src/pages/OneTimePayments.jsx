@@ -37,6 +37,7 @@ const INITIAL_FORM = {
   date: formatLocalDate(),
   payment_method: "debit",
   notes: "",
+  applicable_month: toYearMonth(new Date()),
 };
 
 export function OneTimePayments() {
@@ -59,15 +60,10 @@ export function OneTimePayments() {
 
   const fetchPayments = useCallback(async () => {
     setLoading(true);
-    const [y, m] = selectedMonth.split("-");
-    const startDate = `${y}-${m}-01`;
-    const lastDay = new Date(parseInt(y), parseInt(m), 0).getDate();
-    const endDate = `${y}-${m}-${String(lastDay).padStart(2, "0")}`;
     const { data, error } = await supabase
       .from("expenses")
       .select("*")
-      .gte("date", startDate)
-      .lte("date", endDate)
+      .eq("applicable_month", selectedMonth)
       .order("date", { ascending: false });
     if (error) console.error("Error:", error);
     else setPayments(data || []);
@@ -81,14 +77,14 @@ export function OneTimePayments() {
     setSaving(true);
     if (editingId) {
       await supabase.from("expenses").update({
-        category: form.category, amount: Number(form.amount), date: form.date, payment_method: form.payment_method, notes: form.notes,
+        category: form.category, amount: Number(form.amount), date: form.date, applicable_month: form.applicable_month, payment_method: form.payment_method, notes: form.notes,
       }).eq("id", editingId);
     } else {
       await supabase.from("expenses").insert([{
-        category: form.category, amount: Number(form.amount), date: form.date, payment_method: form.payment_method, notes: form.notes,
+        category: form.category, amount: Number(form.amount), date: form.date, applicable_month: form.applicable_month || selectedMonth, payment_method: form.payment_method, notes: form.notes,
       }]);
     }
-    setForm(INITIAL_FORM);
+    setForm({ ...INITIAL_FORM, applicable_month: selectedMonth });
     setEditingId(null);
     setSaving(false);
     fetchPayments();
@@ -96,7 +92,7 @@ export function OneTimePayments() {
 
   const handleEdit = (p) => {
     setEditingId(p.id);
-    setForm({ category: p.category, amount: String(p.amount), date: p.date, payment_method: p.payment_method || "debit", notes: p.notes || "" });
+    setForm({ category: p.category, amount: String(p.amount), date: p.date, applicable_month: p.applicable_month || p.date.slice(0, 7), payment_method: p.payment_method || "debit", notes: p.notes || "" });
   };
 
   const handleDelete = async (id) => {
@@ -159,8 +155,13 @@ export function OneTimePayments() {
                 <Input type="number" placeholder="e.g. 5000" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
               </div>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Date</label>
+                <label className="text-sm font-medium">Transaction Date</label>
                 <Input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-pink-600 dark:text-pink-400">Applicable Month (Budget)</label>
+                <Input type="month" value={form.applicable_month} onChange={e => setForm({ ...form, applicable_month: e.target.value })} />
+                <p className="text-[10px] text-muted-foreground">The month dashboard this payment will appear in.</p>
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Payment Method</label>
@@ -182,7 +183,7 @@ export function OneTimePayments() {
                   {saving ? "Saving..." : editingId ? "Update" : "Save Payment"}
                 </Button>
                 {editingId && (
-                  <Button variant="outline" onClick={() => { setForm(INITIAL_FORM); setEditingId(null); }}>
+                  <Button variant="outline" onClick={() => { setForm({ ...INITIAL_FORM, applicable_month: selectedMonth }); setEditingId(null); }}>
                     <X className="h-4 w-4" />
                   </Button>
                 )}

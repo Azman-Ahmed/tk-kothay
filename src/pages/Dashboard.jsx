@@ -78,9 +78,9 @@ export function Dashboard() {
         { data: creditBillPayments },
         { data: loanPayments },
       ] = await Promise.all([
-        supabase.from("incomes").select("amount,date"),
-        supabase.from("expenses").select("amount,category,date,payment_method"),
-        supabase.from("daily_spends").select("amount,date,payment_method"),
+        supabase.from("incomes").select("amount,date,applicable_month"),
+        supabase.from("expenses").select("amount,category,date,payment_method,applicable_month"),
+        supabase.from("daily_spends").select("amount,date,payment_method,applicable_month"),
         supabase.from("savings_goals").select("*"),
         supabase.from("loans").select("*"), 
         supabase.from("recurring_expenses").select("*"),
@@ -98,7 +98,7 @@ export function Dashboard() {
         const activeMonth = mStr;
 
         const baseIncome = (allIncomes || [])
-          .filter(i => i.date >= mStart && i.date <= mEnd)
+          .filter(i => (i.applicable_month || i.date.slice(0, 7)) === mStr)
           .reduce((s, i) => s + Number(i.amount), 0);
           
         const loanIncome = (allLoans || [])
@@ -115,11 +115,11 @@ export function Dashboard() {
         const totalIncome = baseIncome + loanIncome + givenLoanRepayments;
 
         const totalOneTime = (allExpenses || [])
-          .filter(i => i.date >= mStart && i.date <= mEnd)
+          .filter(i => (i.applicable_month || i.date.slice(0, 7)) === mStr)
           .reduce((s, i) => i.payment_method === 'credit' ? s : s + Number(i.amount), 0);
           
         const totalDaily = (allDaily || [])
-          .filter(i => i.date >= mStart && i.date <= mEnd)
+          .filter(i => (i.applicable_month || i.date.slice(0, 7)) === mStr)
           .reduce((s, i) => i.payment_method === 'credit' ? s : s + Number(i.amount), 0);
           
         const activeRecurring = (allRecurring || []).filter(r => {
@@ -169,7 +169,7 @@ export function Dashboard() {
 
         const categoryMap = {};
         (allExpenses || [])
-          .filter(e => e.date >= mStart && e.date <= mEnd)
+          .filter(e => (e.applicable_month || e.date.slice(0, 7)) === mStr)
           .forEach(e => { categoryMap[e.category] = (categoryMap[e.category] || 0) + Number(e.amount); });
 
         return {
@@ -185,9 +185,9 @@ export function Dashboard() {
       // Determine the earliest record date to start calculating carry forward
       let earliestDateStr = null;
       const allDates = [];
-      if (allIncomes) allIncomes.forEach(i => allDates.push(i.date));
-      if (allExpenses) allExpenses.forEach(e => allDates.push(e.date));
-      if (allDaily) allDaily.forEach(d => allDates.push(d.date));
+      if (allIncomes) allIncomes.forEach(i => allDates.push(i.applicable_month ? `${i.applicable_month}-01` : i.date));
+      if (allExpenses) allExpenses.forEach(e => allDates.push(e.applicable_month ? `${e.applicable_month}-01` : e.date));
+      if (allDaily) allDaily.forEach(d => allDates.push(d.applicable_month ? `${d.applicable_month}-01` : d.date));
       if (allLoans) allLoans.forEach(l => { if(l.start_date) allDates.push(l.start_date); else allDates.push(l.created_at.split('T')[0]); });
       
       if (allDates.length > 0) {
@@ -298,8 +298,8 @@ export function Dashboard() {
 
     const lmStart = `${cb_lmY}-${String(cb_lmM + 1).padStart(2, "0")}-01`;
     const lmEnd = `${cb_lmY}-${String(cb_lmM + 1).padStart(2, "0")}-${String(new Date(cb_lmY, cb_lmM + 1, 0).getDate()).padStart(2, "0")}`;
-    const lastMonthExpensesList = (window.__dashboard_allExpenses || []).filter(e => e.date >= lmStart && e.date <= lmEnd);
-    const allDailyLastMonthList = (window.__dashboard_allDaily || []).filter(e => e.date >= lmStart && e.date <= lmEnd);
+    const lastMonthExpensesList = (window.__dashboard_allExpenses || []).filter(e => (e.applicable_month || e.date.slice(0, 7)) === lastMonthKey);
+    const allDailyLastMonthList = (window.__dashboard_allDaily || []).filter(e => (e.applicable_month || e.date.slice(0, 7)) === lastMonthKey);
 
     const lastMonthCreditExpenses = lastMonthExpensesList.reduce((s, e) => e.payment_method === 'credit' ? s + Number(e.amount) : s, 0);
     const lastMonthCreditDaily = allDailyLastMonthList.reduce((s, e) => e.payment_method === 'credit' ? s + Number(e.amount) : s, 0);
@@ -339,16 +339,14 @@ export function Dashboard() {
       months.push({ year: d.getFullYear(), month: d.getMonth(), label: MONTH_NAMES[d.getMonth()] });
     }
 
-    const [{ data: sixMonthIncomes }, { data: sixMonthExpenses }, { data: sixMonthDaily }] = await Promise.all([
-      supabase.from("incomes").select("amount,date").gte("date", new Date(year, month - 5, 1).toISOString().split("T")[0]),
-      supabase.from("expenses").select("amount,date").gte("date", new Date(year, month - 5, 1).toISOString().split("T")[0]),
-      supabase.from("daily_spends").select("amount,date").gte("date", new Date(year, month - 5, 1).toISOString().split("T")[0]),
-    ]);
+    const sixMonthIncomes = allIncomes;
+    const sixMonthExpenses = allExpenses;
+    const sixMonthDaily = allDaily;
 
     const buildMap = (rows) => {
       const map = {};
       (rows || []).forEach(r => {
-        const key = r.date.slice(0, 7); // "YYYY-MM"
+        const key = r.applicable_month || r.date.slice(0, 7); // "YYYY-MM"
         map[key] = (map[key] || 0) + Number(r.amount);
       });
       return map;
