@@ -27,7 +27,7 @@ function monthLabel(ym) {
   return `${MONTHS[parseInt(m) - 1]} ${y}`;
 }
 
-const INITIAL_FORM = { source: "Salary", amount: "", date: formatLocalDate(), notes: "", applicable_month: toYearMonth(new Date()) };
+const INITIAL_FORM = { source: "Salary", amount: "", date: formatLocalDate(), notes: "" };
 
 
 export function Income() {
@@ -50,9 +50,13 @@ export function Income() {
 
   const fetchIncomes = useCallback(async () => {
     setLoading(true);
+    const [y, m] = selectedMonth.split("-");
+    const startDate = `${y}-${m}-01`;
+    const lastDay = new Date(parseInt(y), parseInt(m), 0).getDate();
+    const endDate = `${y}-${m}-${String(lastDay).padStart(2, "0")}`;
     const { data, error } = await supabase
       .from("incomes").select("*")
-      .eq("applicable_month", selectedMonth)
+      .gte("date", startDate).lte("date", endDate)
       .order("date", { ascending: false });
     if (error) console.error("Error fetching incomes:", error);
     else setIncomes(data || []);
@@ -66,14 +70,14 @@ export function Income() {
     setSaving(true);
     if (editingId) {
       await supabase.from("incomes").update({
-        source: form.source, amount: Number(form.amount), date: form.date, applicable_month: form.applicable_month, notes: form.notes,
+        source: form.source, amount: Number(form.amount), date: form.date, notes: form.notes,
       }).eq("id", editingId);
     } else {
       await supabase.from("incomes").insert([{
-        source: form.source, amount: Number(form.amount), date: form.date, applicable_month: form.applicable_month || selectedMonth, notes: form.notes,
+        source: form.source, amount: Number(form.amount), date: form.date, notes: form.notes,
       }]);
     }
-    setForm({ ...INITIAL_FORM, applicable_month: selectedMonth });
+    setForm(INITIAL_FORM);
     setEditingId(null);
     setSaving(false);
     fetchIncomes();
@@ -81,7 +85,7 @@ export function Income() {
 
   const handleEdit = (inc) => {
     setEditingId(inc.id);
-    setForm({ source: inc.source, amount: String(inc.amount), date: inc.date, applicable_month: inc.applicable_month || inc.date.slice(0, 7), notes: inc.notes || "" });
+    setForm({ source: inc.source, amount: String(inc.amount), date: inc.date, notes: inc.notes || "" });
   };
 
   const handleDelete = async (id) => {
@@ -145,13 +149,8 @@ export function Income() {
                 <Input type="number" placeholder="e.g. 5000" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
               </div>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Transaction Date</label>
+                <label className="text-sm font-medium">Date</label>
                 <Input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Applicable Month (Budget)</label>
-                <Input type="month" value={form.applicable_month} onChange={e => setForm({ ...form, applicable_month: e.target.value })} />
-                <p className="text-[10px] text-muted-foreground">The month dashboard this income will appear in.</p>
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Notes (Optional)</label>
@@ -161,7 +160,7 @@ export function Income() {
                 <Button className="flex-1" onClick={handleSave} disabled={saving || !form.amount}>
                   {saving ? "Saving..." : editingId ? "Update Entry" : "Save Entry"}
                 </Button>
-                {editingId && <Button variant="outline" onClick={() => { setForm({ ...INITIAL_FORM, applicable_month: selectedMonth }); setEditingId(null); }}><X className="h-4 w-4" /></Button>}
+                {editingId && <Button variant="outline" onClick={() => { setForm(INITIAL_FORM); setEditingId(null); }}><X className="h-4 w-4" /></Button>}
               </div>
             </CardContent>
           </Card>
