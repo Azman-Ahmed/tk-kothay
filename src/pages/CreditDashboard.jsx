@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { CreditCard, AlertCircle, ShoppingCart, RefreshCw, Pencil, Check, X } from "lucide-react";
+import { CreditCard, AlertCircle, ShoppingCart, RefreshCw, Pencil, Check, X, ArrowDownToLine } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -13,6 +13,8 @@ export default function CreditDashboard() {
   const [usage, setUsage] = useState(0);
   const [transactions, setTransactions] = useState([]);
   const [savingLimit, setSavingLimit] = useState(false);
+  const [repayAmount, setRepayAmount] = useState("");
+  const [isRepaying, setIsRepaying] = useState(false);
 
   const supabase = getSupabaseBrowserClient();
 
@@ -83,6 +85,47 @@ export default function CreditDashboard() {
       setIsEditingLimit(false);
     }
     setSavingLimit(false);
+  };
+
+  const handleRepay = async () => {
+    const val = Number(repayAmount);
+    if (val <= 0) return;
+    setIsRepaying(true);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    const now = new Date();
+    const billMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+    const { data: existing } = await supabase
+      .from("credit_bill_payments")
+      .select("*")
+      .eq("bill_month", billMonthStr)
+      .eq("user_id", user.id)
+      .single();
+
+    if (existing) {
+      await supabase
+        .from("credit_bill_payments")
+        .update({
+          amount: Number(existing.amount) + val,
+          paid_at: new Date().toISOString()
+        })
+        .eq("id", existing.id);
+    } else {
+      await supabase
+        .from("credit_bill_payments")
+        .insert([{
+          user_id: user.id,
+          bill_month: billMonthStr,
+          amount: val,
+          paid_at: new Date().toISOString()
+        }]);
+    }
+
+    setRepayAmount("");
+    setIsRepaying(false);
+    fetchData();
   };
 
   useEffect(() => {
@@ -161,6 +204,26 @@ export default function CreditDashboard() {
                 <span className="font-semibold">Extreme usage! You have less than 10% credit remaining.</span>
               </div>
             )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-6 pt-4 border-t border-indigo-100 dark:border-indigo-900/50">
+               <div className="sm:col-span-2 relative">
+                 <Input 
+                   type="number" 
+                   placeholder="Enter amount to pay back..." 
+                   value={repayAmount}
+                   onChange={e => setRepayAmount(e.target.value)}
+                   className="h-10 pl-8 bg-background/50 border-indigo-200 dark:border-indigo-800"
+                 />
+                 <ArrowDownToLine className="h-4 w-4 absolute left-2.5 top-3 text-muted-foreground" />
+               </div>
+               <Button 
+                 className="h-10 font-bold bg-indigo-600 hover:bg-indigo-700 text-white" 
+                 onClick={handleRepay} 
+                 disabled={isRepaying || !repayAmount || Number(repayAmount) <= 0}
+               >
+                 {isRepaying ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : "Pay Back"}
+               </Button>
+            </div>
           </CardContent>
         </Card>
 
